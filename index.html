@@ -200,6 +200,11 @@
         </div>
 
         <div id="mealsContainer"></div>
+
+        <div class="card" style="margin-top:14px;">
+          <label style="font-size:12px; color:var(--text-dim);">Notes for today</label>
+          <textarea id="dayNoteInput" rows="3" style="width:100%; resize:vertical; margin-top:6px;" placeholder="Anything worth remembering about today…"></textarea>
+        </div>
       </section>
 
       <!-- WEEK -->
@@ -361,7 +366,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.3.2';
+const APP_VERSION = 'v0.4.0';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -562,7 +567,10 @@ function resolveQuantityToBaseAmount(item, isRecipe, amount, unitKey){
     const cs = (item.customServings||[])[idx];
     return cs ? amount * Number(cs.amount||0) : amount;
   }
-  if(!isRecipe && unitKey.startsWith('global:')){
+  if(unitKey.startsWith('global:')){
+    // Global units are defined in ml. For a gram-based item (or a recipe,
+    // always gram-based) this treats 1ml as 1g — an approximation the user
+    // has explicitly opted into for convenience.
     const idx = Number(unitKey.split(':')[1]);
     const u = state.units[idx];
     return u ? amount * Number(u.ml||0) : amount;
@@ -585,6 +593,7 @@ const state = {
   dayLogEntries: [],
   weekLogEntries: [],
   weightEntries: [],
+  dayNote: '',
   currentTab: 'today',
   currentDate: todayStr(),
   weekAnchor: todayStr(),
@@ -737,6 +746,7 @@ async function initUserData(){
   }));
 
   subscribeDayLog();
+  subscribeDayNote();
   subscribeWeekLog();
 }
 
@@ -748,6 +758,25 @@ function subscribeDayLog(){
     renderToday();
   });
   unsubscribers.push(dayLogUnsub);
+}
+let dayNoteUnsub = null;
+function subscribeDayNote(){
+  if(dayNoteUnsub){ dayNoteUnsub(); dayNoteUnsub = null; }
+  dayNoteUnsub = userCol('dayNotes').doc(state.currentDate).onSnapshot(s=>{
+    state.dayNote = (s.exists && s.data().text) || '';
+    const el = document.getElementById('dayNoteInput');
+    // Don't clobber what the user is actively typing — only sync when the
+    // field isn't focused (e.g. after navigating to a different day).
+    if(el && document.activeElement !== el) el.value = state.dayNote;
+  });
+  unsubscribers.push(dayNoteUnsub);
+}
+let dayNoteSaveTimer = null;
+function scheduleDayNoteSave(text){
+  clearTimeout(dayNoteSaveTimer);
+  dayNoteSaveTimer = setTimeout(()=>{
+    userCol('dayNotes').doc(state.currentDate).set({text}, {merge:true}).catch(console.error);
+  }, 500);
 }
 let weekLogUnsub = null;
 function subscribeWeekLog(){
@@ -812,8 +841,12 @@ document.getElementById('todayDateInput').addEventListener('change', (e)=>{
 function setCurrentDate(d){
   state.currentDate = d;
   subscribeDayLog();
+  subscribeDayNote();
   renderToday();
 }
+document.getElementById('dayNoteInput').addEventListener('input', (e)=>{
+  scheduleDayNoteSave(e.target.value);
+});
 
 function macroSummaryRowsHtml(consumed, target){
   const remaining = {
@@ -1037,11 +1070,12 @@ function unitOptionsHtml(item, isRecipe){
   (item.customServings||[]).forEach((cs,i)=>{
     opts += `<option value="custom:${i}">${escapeHtml(cs.name)}</option>`;
   });
-  if(!isRecipe && item.baseUnit === 'ml'){
-    state.units.forEach((u,i)=>{
-      opts += `<option value="global:${i}">${escapeHtml(u.name)}</option>`;
-    });
-  }
+  // Global units (teaspoon/tablespoon/cup, defined in ml) are offered for
+  // every item, not just ml-based ones — for a gram-based item this treats
+  // 1ml as 1g, an approximation that's convenient for spoon/cup measures.
+  state.units.forEach((u,i)=>{
+    opts += `<option value="global:${i}">${escapeHtml(u.name)}</option>`;
+  });
   return opts;
 }
 
@@ -1106,6 +1140,14 @@ function openEditEntryModal(entryId){
   const item = isAdhoc ? null : (isRecipe ? recipesById()[entry.refId] : productsById()[entry.refId]);
   const per100 = item ? (isRecipe ? recipeMacrosPer100(item, productsById(), recipesById()) : productMacrosPer100(item)) : null;
 
+  // For an adhoc entry, or one whose source product/recipe was deleted, we
+  // don't have a live per-100 definition to scale from — reconstruct it by
+  // inverting the scaling that produced the stored total macros, so editing
+  // offers the same name/per-100/amount fields as creating one did.
+  const noItemAmount = (item ? null : (entry.quantity && entry.quantity.baseAmount > 0 ? entry.quantity.baseAmount : 100));
+  const noItemBaseUnit = item ? null : ((entry.quantity && entry.quantity.baseUnitLabel) || 'g');
+  const noItemPer100 = item ? null : scaleMacros(entry.macros || emptyMacros(), 100 / noItemAmount);
+
   openModal(`
     <div class="modal-header"><h2>Edit: ${escapeHtml(entry.refName)}</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
     ${item ? `
@@ -1114,13 +1156,19 @@ function openEditEntryModal(entryId){
         <div class="field"><label>Unit</label><select id="qtyUnit">${unitOptionsHtml(item, isRecipe)}</select></div>
       </div>
       <div class="muted" id="qtyPreview" style="margin:10px 0; font-size:13px;"></div>
-    ` : `<p class="muted">${isAdhoc ? 'A one-off item — edit its values directly below.' : 'The original product/recipe was deleted — only the logged macros remain, shown below.'}</p>
-      <div class="row-wrap">
-        <div class="field"><label>Calories</label><input type="number" id="editCal" value="${entry.macros.calories}"></div>
-        <div class="field"><label>Protein</label><input type="number" id="editP" value="${entry.macros.protein}"></div>
-        <div class="field"><label>Fat</label><input type="number" id="editF" value="${entry.macros.fat}"></div>
-        <div class="field"><label>Carbs</label><input type="number" id="editC" value="${entry.macros.carbs}"></div>
+    ` : `<p class="muted">${isAdhoc ? 'A one-off item — edit its values directly below.' : 'The original product/recipe was deleted — edit the values directly below.'}</p>
+      <div class="field"><label>Name</label><input type="text" id="editName" value="${escapeHtml(entry.refName)}" required></div>
+      <div class="field"><label>Values are per 100</label>
+        <select id="editBaseUnit"><option value="g" ${noItemBaseUnit==='g'?'selected':''}>grams (g)</option><option value="ml" ${noItemBaseUnit==='ml'?'selected':''}>milliliters (ml)</option></select>
       </div>
+      <div class="row-wrap">
+        <div class="field"><label>Calories</label><input type="number" step="any" id="editCal" value="${round1(noItemPer100.calories)}"></div>
+        <div class="field"><label>Protein</label><input type="number" step="any" id="editP" value="${round1(noItemPer100.protein)}"></div>
+        <div class="field"><label>Fat</label><input type="number" step="any" id="editF" value="${round1(noItemPer100.fat)}"></div>
+        <div class="field"><label>Carbs</label><input type="number" step="any" id="editC" value="${round1(noItemPer100.carbs)}"></div>
+      </div>
+      <div class="field"><label>Amount actually consumed</label><input type="number" step="any" id="editAmount" value="${noItemAmount}"></div>
+      <div class="muted" id="editPreview" style="font-size:13px;"></div>
     `}
     <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="editNotes" rows="2" style="width:100%; resize:vertical;">${escapeHtml(entry.notes||'')}</textarea></div>
     <div class="row-wrap" style="margin-top:12px;">
@@ -1160,14 +1208,33 @@ function openEditEntryModal(entryId){
       closeModal();
     });
   } else {
+    function per100FromInputs(){
+      return {
+        calories: Number(document.getElementById('editCal').value)||0,
+        protein: Number(document.getElementById('editP').value)||0,
+        fat: Number(document.getElementById('editF').value)||0,
+        carbs: Number(document.getElementById('editC').value)||0,
+      };
+    }
+    function updateNoItemPreview(){
+      const amount = Number(document.getElementById('editAmount').value)||0;
+      const macros = scaleMacros(per100FromInputs(), amount/100);
+      document.getElementById('editPreview').textContent =
+        `= ${fmtCal(macros.calories)} cal · P${fmtMacro(macros.protein)} F${fmtMacro(macros.fat)} C${fmtMacro(macros.carbs)}`;
+    }
+    ['editCal','editP','editF','editC','editAmount'].forEach(id=> document.getElementById(id).addEventListener('input', updateNoItemPreview));
+    updateNoItemPreview();
+
     document.getElementById('editSaveBtn').addEventListener('click', async ()=>{
+      const name = document.getElementById('editName').value.trim();
+      if(!name) return;
+      const baseUnit = document.getElementById('editBaseUnit').value;
+      const amount = Number(document.getElementById('editAmount').value)||0;
+      const macros = scaleMacros(per100FromInputs(), amount/100);
       await userCol('logEntries').doc(entryId).update({
-        macros: {
-          calories: Number(document.getElementById('editCal').value)||0,
-          protein: Number(document.getElementById('editP').value)||0,
-          fat: Number(document.getElementById('editF').value)||0,
-          carbs: Number(document.getElementById('editC').value)||0,
-        },
+        refName: name,
+        quantity: {amount, unit:'base', unitLabel: `${baseUnit} (direct amount)`, baseAmount: amount, baseUnitLabel: baseUnit},
+        macros,
         notes: notesValue(),
       });
       closeModal();
