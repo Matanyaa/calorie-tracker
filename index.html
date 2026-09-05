@@ -143,6 +143,7 @@
   <div class="auth-card card">
     <h1>Macro Tracker</h1>
     <div class="sub">Sign in to track your calories &amp; macros</div>
+    <div style="text-align:center; margin:-10px 0 14px;"><span class="badge" id="authVersionBadge"></span></div>
     <button id="googleSignInBtn" class="btn btn-primary" style="width:100%;">Continue with Google</button>
     <div class="divider">or</div>
     <div class="tabbar-inline">
@@ -165,7 +166,10 @@
 <div id="app" class="hidden">
   <header>
     <div class="container">
-      <h1>Macro Tracker</h1>
+      <div class="row" style="gap:8px; align-items:baseline;">
+        <h1>Macro Tracker</h1>
+        <span class="badge" id="headerVersionBadge" title="App version — see Settings for update details"></span>
+      </div>
       <div class="row">
         <span class="user-email" id="userEmailLabel"></span>
         <button class="btn-icon" id="signOutBtn" title="Sign out">&#9211;</button>
@@ -354,8 +358,10 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.1.1';
+const APP_VERSION = 'v0.1.2';
 const APP_VERSION_DATE = '2026-09-05';
+document.getElementById('headerVersionBadge').textContent = APP_VERSION;
+document.getElementById('authVersionBadge').textContent = APP_VERSION;
 
 const firebaseConfig = {
   apiKey: "AIzaSyBdaitT0GI40p93f22uFEV6XIWiedc2JyY",
