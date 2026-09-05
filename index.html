@@ -357,7 +357,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.2.2';
+const APP_VERSION = 'v0.2.3';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -1120,8 +1120,20 @@ function customServingsRowsHtml(servings, unitLabel){
 }
 
 function openProductForm(id){
-  const p = id ? state.products.find(x=>x.id===id) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[]};
+  const original = id ? state.products.find(x=>x.id===id) : null;
+  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[]};
   let servings = JSON.parse(JSON.stringify(p.customServings||[]));
+
+  function syncMainFieldsFromDom(){
+    const nameEl = document.getElementById('pfName');
+    if(!nameEl) return;
+    p.name = nameEl.value;
+    p.baseUnit = document.getElementById('pfBaseUnit').value;
+    p.calories = document.getElementById('pfCal').value;
+    p.protein = document.getElementById('pfP').value;
+    p.fat = document.getElementById('pfF').value;
+    p.carbs = document.getElementById('pfC').value;
+  }
 
   function render(){
     openModal(`
@@ -1144,11 +1156,13 @@ function openProductForm(id){
     `);
     document.getElementById('pfBaseUnit').addEventListener('change', render2ServingsLabel);
     document.getElementById('addServingBtn').addEventListener('click', ()=>{
-      servings.push({name:'', amount:''});
+      syncMainFieldsFromDom();
       syncServingsFromDom();
+      servings.push({name:'', amount:''});
       render();
     });
     document.querySelectorAll('[data-remove-serving]').forEach(b=> b.addEventListener('click', ()=>{
+      syncMainFieldsFromDom();
       syncServingsFromDom();
       servings.splice(Number(b.dataset.removeServing),1);
       render();
@@ -1374,6 +1388,8 @@ function openRecipeForm(id){
     }));
   }
   function syncFromDom(){
+    const nameEl = document.getElementById('rfName');
+    if(nameEl) r.name = nameEl.value;
     document.querySelectorAll('[data-ing-row]').forEach((row,i)=>{
       if(!ingredients[i]) return;
       ingredients[i].amount = row.querySelector('[data-ing-amount]').value;
