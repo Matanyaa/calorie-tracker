@@ -361,7 +361,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.3.1';
+const APP_VERSION = 'v0.3.2';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -879,7 +879,7 @@ function renderToday(){
 }
 
 function quantityLabel(e){
-  if(e.itemType === 'adhoc') return 'Quick add';
+  if(e.itemType === 'adhoc' && !e.quantity) return 'Quick add'; // entries logged before amount/unit were captured
   if(!e.quantity) return '100 ' + (e.itemType==='recipe'?'g':(e.baseUnit||'g'));
   const {amount, unit, unitLabel} = e.quantity;
   let resolvedAmount = e.quantity.baseAmount;
@@ -975,34 +975,57 @@ function openAdhocItemModal(meal){
     <p class="muted" style="font-size:13px; margin-top:0;">Logged with its own values just this once — it won't be saved to your Products list.</p>
     <form id="adhocForm" class="col">
       <div class="field"><label>Name</label><input type="text" id="adhocName" required autofocus></div>
+      <div class="field"><label>Values are per 100</label>
+        <select id="adhocBaseUnit"><option value="g">grams (g)</option><option value="ml">milliliters (ml)</option></select>
+      </div>
       <div class="row-wrap">
         <div class="field"><label>Calories</label><input type="number" step="any" id="adhocCal"></div>
         <div class="field"><label>Protein (g)</label><input type="number" step="any" id="adhocP"></div>
         <div class="field"><label>Fat (g)</label><input type="number" step="any" id="adhocF"></div>
         <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="adhocC"></div>
       </div>
+      <div class="field"><label>Amount actually consumed</label><input type="number" step="any" id="adhocAmount" value="100"></div>
+      <div class="muted" id="adhocPreview" style="font-size:13px;"></div>
       <div class="field"><label>Notes (optional)</label><textarea id="adhocNotes" rows="2" style="width:100%; resize:vertical;" placeholder="e.g. estimate — check the real label later"></textarea></div>
       <button type="submit" class="btn btn-primary" style="margin-top:6px;">Add to ${MEAL_LABELS[meal]}</button>
     </form>
   `);
+
+  function per100FromInputs(){
+    return {
+      calories: Number(document.getElementById('adhocCal').value)||0,
+      protein: Number(document.getElementById('adhocP').value)||0,
+      fat: Number(document.getElementById('adhocF').value)||0,
+      carbs: Number(document.getElementById('adhocC').value)||0,
+    };
+  }
+  function updatePreview(){
+    const amount = Number(document.getElementById('adhocAmount').value)||0;
+    const macros = scaleMacros(per100FromInputs(), amount/100);
+    document.getElementById('adhocPreview').textContent =
+      `= ${fmtCal(macros.calories)} cal · P${fmtMacro(macros.protein)} F${fmtMacro(macros.fat)} C${fmtMacro(macros.carbs)}`;
+  }
+  ['adhocCal','adhocP','adhocF','adhocC','adhocAmount'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', updatePreview);
+  });
+  updatePreview();
+
   document.getElementById('adhocForm').addEventListener('submit', async (e)=>{
     e.preventDefault();
     const name = document.getElementById('adhocName').value.trim();
     if(!name) return;
     const notes = document.getElementById('adhocNotes').value.trim();
+    const baseUnit = document.getElementById('adhocBaseUnit').value;
+    const amount = Number(document.getElementById('adhocAmount').value)||0;
+    const macros = scaleMacros(per100FromInputs(), amount/100);
     await userCol('logEntries').add({
       date: state.currentDate,
       meal,
       itemType: 'adhoc',
       refId: null,
       refName: name,
-      quantity: null,
-      macros: {
-        calories: Number(document.getElementById('adhocCal').value)||0,
-        protein: Number(document.getElementById('adhocP').value)||0,
-        fat: Number(document.getElementById('adhocF').value)||0,
-        carbs: Number(document.getElementById('adhocC').value)||0,
-      },
+      quantity: {amount, unit:'base', unitLabel: `${baseUnit} (direct amount)`, baseAmount: amount, baseUnitLabel: baseUnit},
+      macros,
       notes: notes || null,
     });
     closeModal();
