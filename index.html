@@ -357,7 +357,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.2.4';
+const APP_VERSION = 'v0.2.5';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -867,12 +867,25 @@ function renderToday(){
 
 function quantityLabel(e){
   if(!e.quantity) return '100 ' + (e.itemType==='recipe'?'g':(e.baseUnit||'g'));
-  const {amount, unit, unitLabel, baseAmount, baseUnitLabel: buLabel} = e.quantity;
-  if(unit && unit !== 'base' && baseAmount != null && buLabel){
-    return `${amount} ${unitLabel} (${round1(baseAmount)} ${buLabel})`;
+  const {amount, unit, unitLabel} = e.quantity;
+  let resolvedAmount = e.quantity.baseAmount;
+  let resolvedLabel = e.quantity.baseUnitLabel;
+  if((resolvedAmount == null || !resolvedLabel) && unit){
+    // Entries logged before these fields were snapshotted — reconstruct on
+    // the fly from the current product/recipe definition (falls through to
+    // the plain label below if that source was since deleted).
+    const isRecipe = e.itemType === 'recipe';
+    const item = isRecipe ? recipesById()[e.refId] : productsById()[e.refId];
+    if(item){
+      resolvedAmount = resolveQuantityToBaseAmount(item, isRecipe, amount, unit);
+      resolvedLabel = baseUnitLabel(item, isRecipe);
+    }
   }
-  if(buLabel) return `${amount} ${buLabel}`;
-  return `${amount} ${unitLabel}`; // entries logged before baseUnitLabel existed
+  if(unit && unit !== 'base' && resolvedAmount != null && resolvedLabel){
+    return `${amount} ${unitLabel} (${round1(resolvedAmount)} ${resolvedLabel})`;
+  }
+  if(resolvedLabel) return `${amount} ${resolvedLabel}`;
+  return `${amount} ${unitLabel}`;
 }
 
 function entryRowHtml(e){
