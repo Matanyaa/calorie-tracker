@@ -354,7 +354,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.1.0';
+const APP_VERSION = 'v0.1.1';
 const APP_VERSION_DATE = '2026-09-05';
 
 const firebaseConfig = {
@@ -582,9 +582,25 @@ function clearListeners(){ unsubscribers.forEach(u=>{ try{u();}catch(e){} }); un
    ========================================================================= */
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 
-document.getElementById('googleSignInBtn').addEventListener('click', ()=>{
+document.getElementById('googleSignInBtn').addEventListener('click', async ()=>{
   setAuthError('');
-  auth.signInWithRedirect(googleProvider).catch(err=>setAuthError(err.message));
+  try{
+    // Popup works more reliably than a full-page redirect across common
+    // installed-PWA / mobile-browser setups, so try it first.
+    await auth.signInWithPopup(googleProvider);
+  }catch(err){
+    if(err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request'){
+      return; // user backed out — not an error worth surfacing
+    }
+    if(err.code === 'auth/operation-not-supported-in-this-environment' || err.code === 'auth/popup-blocked'){
+      // Popups aren't available here (some installed-PWA contexts block them,
+      // notably standalone iOS) — fall back to a full-page redirect.
+      sessionStorage.setItem('macroTrackerGoogleRedirectPending', '1');
+      auth.signInWithRedirect(googleProvider).catch(err2=>setAuthError(err2.message));
+      return;
+    }
+    setAuthError(err.message);
+  }
 });
 
 let authMode = 'signin';
@@ -628,7 +644,17 @@ document.getElementById('forgotPasswordLink').addEventListener('click', async (e
 
 document.getElementById('signOutBtn').addEventListener('click', ()=> auth.signOut());
 
-auth.getRedirectResult().catch(err=> setAuthError(err.message));
+auth.getRedirectResult().then(result=>{
+  const wasPending = sessionStorage.getItem('macroTrackerGoogleRedirectPending');
+  if(wasPending) sessionStorage.removeItem('macroTrackerGoogleRedirectPending');
+  if(wasPending && (!result || !result.user) && !auth.currentUser){
+    // The redirect round-trip silently lost the sign-in attempt — a known
+    // issue with Google's redirect flow inside an installed home-screen PWA
+    // (notably iOS Safari). Surface it instead of quietly landing back on
+    // the login screen with no explanation.
+    setAuthError("Google sign-in didn't finish. This can happen when the app is opened from its home-screen icon — try again, open the site directly in Safari/Chrome instead of the home-screen icon, or sign in with email/password below.");
+  }
+}).catch(err=> setAuthError(err.message));
 
 auth.onAuthStateChanged(user=>{
   clearListeners();
