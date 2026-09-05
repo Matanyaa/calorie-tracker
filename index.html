@@ -357,7 +357,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.2.3';
+const APP_VERSION = 'v0.2.4';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -772,8 +772,16 @@ function closeModal(){
   document.getElementById('modalOverlay').classList.add('hidden');
   document.getElementById('modalContent').innerHTML = '';
 }
+// Close on a genuine click on the backdrop only — not on a text-selection
+// drag that starts inside the modal (e.g. selecting input text) and ends up
+// releasing the mouse over the backdrop, which a plain 'click' listener
+// would otherwise misread as "clicked outside."
+let modalMouseDownOnBackdrop = false;
+document.getElementById('modalOverlay').addEventListener('mousedown', (e)=>{
+  modalMouseDownOnBackdrop = (e.target.id === 'modalOverlay');
+});
 document.getElementById('modalOverlay').addEventListener('click', (e)=>{
-  if(e.target.id === 'modalOverlay') closeModal();
+  if(e.target.id === 'modalOverlay' && modalMouseDownOnBackdrop) closeModal();
 });
 
 /* =========================================================================
@@ -857,9 +865,19 @@ function renderToday(){
   });
 }
 
+function quantityLabel(e){
+  if(!e.quantity) return '100 ' + (e.itemType==='recipe'?'g':(e.baseUnit||'g'));
+  const {amount, unit, unitLabel, baseAmount, baseUnitLabel: buLabel} = e.quantity;
+  if(unit && unit !== 'base' && baseAmount != null && buLabel){
+    return `${amount} ${unitLabel} (${round1(baseAmount)} ${buLabel})`;
+  }
+  if(buLabel) return `${amount} ${buLabel}`;
+  return `${amount} ${unitLabel}`; // entries logged before baseUnitLabel existed
+}
+
 function entryRowHtml(e){
   const m = computeEntryMacros(e);
-  const qtyLabel = e.quantity ? `${e.quantity.amount} ${e.quantity.unitLabel}` : '100 ' + (e.itemType==='recipe'?'g':e.baseUnit);
+  const qtyLabel = quantityLabel(e);
   return `
     <div class="item-row">
       <div>
@@ -966,7 +984,7 @@ function openQuantityModal(meal, refId, itemType){
       itemType,
       refId,
       refName: item.name,
-      quantity: {amount: Number(amountEl.value)||0, unit: unitEl.value, unitLabel},
+      quantity: {amount: Number(amountEl.value)||0, unit: unitEl.value, unitLabel, baseAmount: baseAmt, baseUnitLabel: baseUnitLabel(item, isRecipe)},
       macros,
     });
     closeModal();
@@ -1021,7 +1039,7 @@ function openEditEntryModal(entryId){
       const macros = scaleMacros(per100, baseAmt/100);
       const unitLabel = unitEl.options[unitEl.selectedIndex].text;
       await userCol('logEntries').doc(entryId).update({
-        quantity: {amount:Number(amountEl.value)||0, unit:unitEl.value, unitLabel},
+        quantity: {amount:Number(amountEl.value)||0, unit:unitEl.value, unitLabel, baseAmount: baseAmt, baseUnitLabel: baseUnitLabel(item, isRecipe)},
         macros,
       });
       closeModal();
