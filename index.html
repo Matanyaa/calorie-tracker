@@ -361,7 +361,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.3.0';
+const APP_VERSION = 'v0.3.1';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -517,15 +517,18 @@ function recipeMacrosPer100(recipe, productsById, recipesById, visited){
   let total = emptyMacros();
   let totalAmount = 0;
   (recipe.ingredients||[]).forEach(ing=>{
-    const amt = Number(ing.amount)||0;
+    const isIngRecipe = ing.type === 'recipe';
+    const refItem = isIngRecipe ? recipesById[ing.refId] : productsById[ing.refId];
+    // ing.amount is in whatever unit ing.unit names (g/ml direct, a custom
+    // serving, or a global unit like tablespoon) — resolve to the
+    // ingredient's own base unit before folding it into the total.
+    const amt = refItem ? resolveQuantityToBaseAmount(refItem, isIngRecipe, ing.amount, ing.unit || 'base') : (Number(ing.amount)||0);
     totalAmount += amt;
     let per100;
     if(ing.type === 'product'){
-      const p = productsById[ing.refId];
-      per100 = p ? productMacrosPer100(p) : emptyMacros();
+      per100 = refItem ? productMacrosPer100(refItem) : emptyMacros();
     } else {
-      const r = recipesById[ing.refId];
-      per100 = r ? recipeMacrosPer100(r, productsById, recipesById, visited) : emptyMacros();
+      per100 = refItem ? recipeMacrosPer100(refItem, productsById, recipesById, visited) : emptyMacros();
     }
     total = addMacros(total, scaleMacros(per100, amt/100));
   });
@@ -1343,13 +1346,18 @@ function renderRecipes(){
 function ingredientRowsHtml(ingredients){
   const pMap = productsById(), rMap = recipesById();
   return ingredients.map((ing,i)=>{
-    const name = ing.refId ? (ing.type==='product' ? pMap[ing.refId]?.name : rMap[ing.refId]?.name) : '';
+    const refItem = ing.refId ? (ing.type==='product' ? pMap[ing.refId] : rMap[ing.refId]) : null;
+    const name = refItem ? refItem.name : '';
+    const unitHtml = refItem
+      ? `<select data-ing-unit style="width:118px;">${unitOptionsHtml(refItem, ing.type==='recipe')}</select>`
+      : `<select data-ing-unit style="width:118px;" disabled><option>unit</option></select>`;
     return `
     <div class="row-wrap" data-ing-row="${i}" style="margin-bottom:6px;">
       <input type="text" placeholder="Search ingredient…" value="${escapeHtml(name||'')}" data-ing-search style="flex:2;" autocomplete="off">
       <input type="hidden" data-ing-type value="${ing.type||''}">
       <input type="hidden" data-ing-refid value="${ing.refId||''}">
-      <input type="number" placeholder="grams" value="${ing.amount||''}" data-ing-amount style="width:90px;">
+      <input type="number" placeholder="amount" value="${ing.amount||''}" data-ing-amount style="width:70px;">
+      ${unitHtml}
       <button type="button" class="btn-icon" data-remove-ing="${i}">&#128465;</button>
       <div class="search-results hidden" data-ing-results style="position:absolute; z-index:5; background:var(--panel2); width:60%;"></div>
     </div>
@@ -1365,7 +1373,13 @@ function openRecipeForm(id){
 
   function computePreviewHtml(){
     const draft = {...r, ingredients};
-    const m = recipeMacrosPer100(draft, productsById(), recipesById(), new Set(id?[id]:[]));
+    // No pre-seeded visited set: recipeMacrosPer100 adds the recipe's own id
+    // to its own (local) visited copy before recursing, which already
+    // guards against genuine cycles — seeding it here with the id of the
+    // recipe we're computing made every top-level call short-circuit to 0.
+    // Direct self-reference is separately prevented by the ingredient
+    // search excluding the recipe currently being edited.
+    const m = recipeMacrosPer100(draft, productsById(), recipesById());
     return `Per 100g (after cooking adjustment): ${fmtCal(m.calories)} cal · P${fmtMacro(m.protein)} F${fmtMacro(m.fat)} C${fmtMacro(m.carbs)}`;
   }
 
@@ -1400,7 +1414,7 @@ function openRecipeForm(id){
 
     document.getElementById('addIngBtn').addEventListener('click', ()=>{
       syncFromDom();
-      ingredients.push({type:'product', refId:'', amount:''});
+      ingredients.push({type:'product', refId:'', amount:'', unit:'base'});
       render();
     });
     document.getElementById('rfAdjMode').addEventListener('change', (e)=>{
@@ -1466,6 +1480,8 @@ function openRecipeForm(id){
       const idx = Number(row.dataset.ingRow);
       const searchInput = row.querySelector('[data-ing-search]');
       const resultsBox = row.querySelector('[data-ing-results]');
+      const unitSelect = row.querySelector('[data-ing-unit]');
+      if(!unitSelect.disabled) unitSelect.value = ingredients[idx].unit || 'base';
       searchInput.addEventListener('input', ()=>{
         const q = searchInput.value.trim().toLowerCase();
         const pMap = productsById();
@@ -1478,14 +1494,23 @@ function openRecipeForm(id){
           el.addEventListener('click', ()=>{
             ingredients[idx].type = el.dataset.pickType;
             ingredients[idx].refId = el.dataset.pickId;
+            ingredients[idx].unit = 'base';
             searchInput.value = el.textContent.trim();
             resultsBox.classList.add('hidden');
+            const pickedItem = el.dataset.pickType==='product' ? productsById()[el.dataset.pickId] : recipesById()[el.dataset.pickId];
+            unitSelect.innerHTML = unitOptionsHtml(pickedItem, el.dataset.pickType==='recipe');
+            unitSelect.disabled = false;
+            unitSelect.value = 'base';
             refreshPreview();
           });
         });
       });
       row.querySelector('[data-ing-amount]').addEventListener('input', (e)=>{
         ingredients[idx].amount = e.target.value;
+        refreshPreview();
+      });
+      unitSelect.addEventListener('change', (e)=>{
+        ingredients[idx].unit = e.target.value;
         refreshPreview();
       });
     });
@@ -1503,6 +1528,8 @@ function openRecipeForm(id){
     document.querySelectorAll('[data-ing-row]').forEach((row,i)=>{
       if(!ingredients[i]) return;
       ingredients[i].amount = row.querySelector('[data-ing-amount]').value;
+      const unitEl = row.querySelector('[data-ing-unit]');
+      if(unitEl && !unitEl.disabled) ingredients[i].unit = unitEl.value;
     });
     document.querySelectorAll('[data-serving-row]').forEach((row,i)=>{
       if(!servings[i]) return;
