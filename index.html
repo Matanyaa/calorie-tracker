@@ -82,15 +82,19 @@
   .date-nav{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
   .date-nav .lbl{font-weight:600; font-size:15px;}
 
-  .meal-section{margin-top:14px;}
-  .meal-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;}
-  .meal-header h3{font-size:14px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-dim);}
+  .meal-card{margin-top:14px; background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:10px; padding:12px 14px 4px;}
+  .meal-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;}
+  .meal-header h3{font-size:16px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px;}
+  .meal-icon{font-size:18px; line-height:1;}
+  .meal-subtotal{font-size:12px; color:var(--text-dim); padding-bottom:8px; margin-bottom:4px; border-bottom:1px solid var(--border-soft);}
   .item-row{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--border-soft);}
   .item-row:last-child{border-bottom:none;}
   .item-name{font-weight:500;}
   .item-sub{font-size:12px; color:var(--text-mute);}
   .item-macros{font-size:12px; color:var(--text-dim); white-space:nowrap;}
   .empty-note{color:var(--text-mute); font-size:13px; padding:6px 0;}
+  .badge-warn{display:inline-block; padding:1px 7px; border-radius:10px; background:transparent; border:1px solid var(--warn); font-size:10px; color:var(--warn); white-space:nowrap; vertical-align:middle;}
+  .entry-note{font-size:11.5px; color:var(--text-mute); font-style:italic; margin-top:2px;}
 
   .list-item{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 0; border-bottom:1px solid var(--border-soft);}
   .list-item:last-child{border-bottom:none;}
@@ -357,7 +361,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.2.5';
+const APP_VERSION = 'v0.3.0';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -374,6 +378,7 @@ const firebaseConfig = {
 
 const MEAL_TYPES = ['breakfast','lunch','supper','extra'];
 const MEAL_LABELS = {breakfast:'Breakfast', lunch:'Lunch', supper:'Supper', extra:'Extra'};
+const MEAL_ICONS = {breakfast:'🍳', lunch:'🥪', supper:'🍽️', extra:'🍎'};
 const DEFAULT_UNITS = [
   {name:'teaspoon', ml:5},
   {name:'tablespoon', ml:15},
@@ -424,6 +429,8 @@ function round0(x){ return Math.round(Number(x)||0); }
 function round1(x){ return Math.round((Number(x)||0)*10)/10; }
 function fmtCal(x){ return round0(x).toLocaleString(); }
 function fmtMacro(x){ return round1(x).toLocaleString(undefined,{minimumFractionDigits:1, maximumFractionDigits:1}); }
+function fmtCalOrDash(x){ return (x==null||x==='') ? '—' : fmtCal(x); }
+function fmtMacroOrDash(x){ return (x==null||x==='') ? '—' : fmtMacro(x); }
 
 function emptyMacros(){ return {calories:0, protein:0, fat:0, carbs:0}; }
 function addMacros(a,b){
@@ -842,13 +849,16 @@ function renderToday(){
   const container = document.getElementById('mealsContainer');
   container.innerHTML = MEAL_TYPES.map(meal=>{
     const items = state.dayLogEntries.filter(e=>e.meal===meal);
+    const mealTotal = items.reduce((acc,e)=> addMacros(acc, computeEntryMacros(e)), emptyMacros());
+    const subtotalHtml = items.length ? `<div class="meal-subtotal">${fmtCal(mealTotal.calories)} cal · P${fmtMacro(mealTotal.protein)} F${fmtMacro(mealTotal.fat)} C${fmtMacro(mealTotal.carbs)}</div>` : '';
     const rows = items.length ? items.map(entryRowHtml).join('') : `<div class="empty-note">Nothing logged</div>`;
     return `
-      <div class="meal-section">
+      <div class="meal-card">
         <div class="meal-header">
-          <h3>${MEAL_LABELS[meal]}</h3>
+          <h3><span class="meal-icon">${MEAL_ICONS[meal]}</span>${MEAL_LABELS[meal]}</h3>
           <button class="btn btn-small" data-add-meal="${meal}">+ Add</button>
         </div>
+        ${subtotalHtml}
         ${rows}
       </div>
     `;
@@ -866,6 +876,7 @@ function renderToday(){
 }
 
 function quantityLabel(e){
+  if(e.itemType === 'adhoc') return 'Quick add';
   if(!e.quantity) return '100 ' + (e.itemType==='recipe'?'g':(e.baseUnit||'g'));
   const {amount, unit, unitLabel} = e.quantity;
   let resolvedAmount = e.quantity.baseAmount;
@@ -888,14 +899,23 @@ function quantityLabel(e){
   return `${amount} ${unitLabel}`;
 }
 
+function entryNeedsValuesWarning(e){
+  if(e.itemType !== 'product') return false;
+  const p = productsById()[e.refId];
+  return p ? productNeedsValues(p) : false;
+}
+
 function entryRowHtml(e){
   const m = computeEntryMacros(e);
   const qtyLabel = quantityLabel(e);
+  const warnHtml = entryNeedsValuesWarning(e) ? ` <span class="badge-warn" title="This product still needs its macro values filled in">needs values</span>` : '';
+  const noteHtml = e.notes ? `<div class="entry-note">${escapeHtml(e.notes)}</div>` : '';
   return `
     <div class="item-row">
       <div>
-        <div class="item-name">${escapeHtml(e.refName)}</div>
+        <div class="item-name">${escapeHtml(e.refName)}${warnHtml}</div>
         <div class="item-sub">${qtyLabel}</div>
+        ${noteHtml}
       </div>
       <div class="row">
         <div class="item-macros">${fmtCal(m.calories)} cal · P${fmtMacro(m.protein)} F${fmtMacro(m.fat)} C${fmtMacro(m.carbs)}</div>
@@ -912,11 +932,17 @@ async function deleteLogEntry(id){
 }
 
 /* ---- Add item to meal ---- */
+function productNeedsValues(p){
+  const blank = v => v==null || v==='';
+  return blank(p.calories) || blank(p.protein) || blank(p.fat) || blank(p.carbs);
+}
+
 function openAddItemModal(meal){
   openModal(`
     <div class="modal-header"><h2>Add to ${MEAL_LABELS[meal]}</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
     <input type="search" id="itemSearchInput" placeholder="Search products & recipes…" style="width:100%; margin-bottom:10px;" autofocus>
     <div class="search-results" id="itemSearchResults"></div>
+    <button type="button" class="btn" id="quickAddBtn" style="width:100%; margin-top:10px;">+ Quick add a one-off item</button>
   `);
   const input = document.getElementById('itemSearchInput');
   const results = document.getElementById('itemSearchResults');
@@ -928,14 +954,56 @@ function openAddItemModal(meal){
     results.innerHTML = all.length ? all.map(it=>`
       <div class="search-result" data-id="${it.id}" data-type="${it.itemType}">
         ${escapeHtml(it.name)} <span class="mute2">(${it.itemType})</span>
+        ${it.itemType==='product' && productNeedsValues(it) ? '<span class="badge-warn">needs values</span>' : ''}
       </div>
-    `).join('') : `<div class="empty-note">No matches. Add a product or recipe first.</div>`;
+    `).join('') : `<div class="empty-note">No matches. Add a product or recipe first, or quick-add a one-off below.</div>`;
     results.querySelectorAll('.search-result').forEach(el=>{
       el.addEventListener('click', ()=> openQuantityModal(meal, el.dataset.id, el.dataset.type));
     });
   }
   input.addEventListener('input', renderResults);
   renderResults();
+  document.getElementById('quickAddBtn').addEventListener('click', ()=> openAdhocItemModal(meal));
+}
+
+function openAdhocItemModal(meal){
+  openModal(`
+    <div class="modal-header"><h2>Quick add to ${MEAL_LABELS[meal]}</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
+    <p class="muted" style="font-size:13px; margin-top:0;">Logged with its own values just this once — it won't be saved to your Products list.</p>
+    <form id="adhocForm" class="col">
+      <div class="field"><label>Name</label><input type="text" id="adhocName" required autofocus></div>
+      <div class="row-wrap">
+        <div class="field"><label>Calories</label><input type="number" step="any" id="adhocCal"></div>
+        <div class="field"><label>Protein (g)</label><input type="number" step="any" id="adhocP"></div>
+        <div class="field"><label>Fat (g)</label><input type="number" step="any" id="adhocF"></div>
+        <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="adhocC"></div>
+      </div>
+      <div class="field"><label>Notes (optional)</label><textarea id="adhocNotes" rows="2" style="width:100%; resize:vertical;" placeholder="e.g. estimate — check the real label later"></textarea></div>
+      <button type="submit" class="btn btn-primary" style="margin-top:6px;">Add to ${MEAL_LABELS[meal]}</button>
+    </form>
+  `);
+  document.getElementById('adhocForm').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const name = document.getElementById('adhocName').value.trim();
+    if(!name) return;
+    const notes = document.getElementById('adhocNotes').value.trim();
+    await userCol('logEntries').add({
+      date: state.currentDate,
+      meal,
+      itemType: 'adhoc',
+      refId: null,
+      refName: name,
+      quantity: null,
+      macros: {
+        calories: Number(document.getElementById('adhocCal').value)||0,
+        protein: Number(document.getElementById('adhocP').value)||0,
+        fat: Number(document.getElementById('adhocF').value)||0,
+        carbs: Number(document.getElementById('adhocC').value)||0,
+      },
+      notes: notes || null,
+    });
+    closeModal();
+  });
 }
 
 function unitOptionsHtml(item, isRecipe){
@@ -1007,8 +1075,9 @@ function openQuantityModal(meal, refId, itemType){
 function openEditEntryModal(entryId){
   const entry = state.dayLogEntries.find(e=>e.id===entryId);
   if(!entry) return;
+  const isAdhoc = entry.itemType === 'adhoc';
   const isRecipe = entry.itemType === 'recipe';
-  const item = isRecipe ? recipesById()[entry.refId] : productsById()[entry.refId];
+  const item = isAdhoc ? null : (isRecipe ? recipesById()[entry.refId] : productsById()[entry.refId]);
   const per100 = item ? (isRecipe ? recipeMacrosPer100(item, productsById(), recipesById()) : productMacrosPer100(item)) : null;
 
   openModal(`
@@ -1019,7 +1088,7 @@ function openEditEntryModal(entryId){
         <div class="field"><label>Unit</label><select id="qtyUnit">${unitOptionsHtml(item, isRecipe)}</select></div>
       </div>
       <div class="muted" id="qtyPreview" style="margin:10px 0; font-size:13px;"></div>
-    ` : `<p class="muted">The original product/recipe was deleted — only the logged macros remain, shown below.</p>
+    ` : `<p class="muted">${isAdhoc ? 'A one-off item — edit its values directly below.' : 'The original product/recipe was deleted — only the logged macros remain, shown below.'}</p>
       <div class="row-wrap">
         <div class="field"><label>Calories</label><input type="number" id="editCal" value="${entry.macros.calories}"></div>
         <div class="field"><label>Protein</label><input type="number" id="editP" value="${entry.macros.protein}"></div>
@@ -1027,11 +1096,17 @@ function openEditEntryModal(entryId){
         <div class="field"><label>Carbs</label><input type="number" id="editC" value="${entry.macros.carbs}"></div>
       </div>
     `}
+    <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="editNotes" rows="2" style="width:100%; resize:vertical;">${escapeHtml(entry.notes||'')}</textarea></div>
     <div class="row-wrap" style="margin-top:12px;">
       <button class="btn btn-primary" id="editSaveBtn" style="flex:1;">Save</button>
       <button class="btn btn-danger" id="editDeleteBtn">Delete</button>
     </div>
   `);
+
+  function notesValue(){
+    const v = document.getElementById('editNotes').value.trim();
+    return v || null;
+  }
 
   if(item){
     const amountEl = document.getElementById('qtyAmount');
@@ -1054,6 +1129,7 @@ function openEditEntryModal(entryId){
       await userCol('logEntries').doc(entryId).update({
         quantity: {amount:Number(amountEl.value)||0, unit:unitEl.value, unitLabel, baseAmount: baseAmt, baseUnitLabel: baseUnitLabel(item, isRecipe)},
         macros,
+        notes: notesValue(),
       });
       closeModal();
     });
@@ -1065,7 +1141,8 @@ function openEditEntryModal(entryId){
           protein: Number(document.getElementById('editP').value)||0,
           fat: Number(document.getElementById('editF').value)||0,
           carbs: Number(document.getElementById('editC').value)||0,
-        }
+        },
+        notes: notesValue(),
       });
       closeModal();
     });
@@ -1123,8 +1200,8 @@ function renderProducts(){
   document.getElementById('productsList').innerHTML = list.length ? list.map(p=>`
     <div class="list-item">
       <div>
-        <div class="item-name">${escapeHtml(p.name)}</div>
-        <div class="item-sub">per 100${p.baseUnit}: ${fmtCal(p.calories)} cal · P${fmtMacro(p.protein)} F${fmtMacro(p.fat)} C${fmtMacro(p.carbs)}</div>
+        <div class="item-name">${escapeHtml(p.name)}${productNeedsValues(p) ? ' <span class="badge-warn">needs values</span>' : ''}</div>
+        <div class="item-sub">per 100${p.baseUnit}: ${fmtCalOrDash(p.calories)} cal · P${fmtMacroOrDash(p.protein)} F${fmtMacroOrDash(p.fat)} C${fmtMacroOrDash(p.carbs)}</div>
       </div>
       <div class="row">
         <button class="btn-icon" data-edit-product="${p.id}">&#9998;</button>
@@ -1175,11 +1252,12 @@ function openProductForm(id){
           <select id="pfBaseUnit"><option value="g" ${p.baseUnit==='g'?'selected':''}>grams (g)</option><option value="ml" ${p.baseUnit==='ml'?'selected':''}>milliliters (ml)</option></select>
         </div>
         <div class="row-wrap">
-          <div class="field"><label>Calories</label><input type="number" step="any" id="pfCal" value="${p.calories}" required></div>
-          <div class="field"><label>Protein (g)</label><input type="number" step="any" id="pfP" value="${p.protein}" required></div>
-          <div class="field"><label>Fat (g)</label><input type="number" step="any" id="pfF" value="${p.fat}" required></div>
-          <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="pfC" value="${p.carbs}" required></div>
+          <div class="field"><label>Calories</label><input type="number" step="any" id="pfCal" value="${p.calories ?? ''}"></div>
+          <div class="field"><label>Protein (g)</label><input type="number" step="any" id="pfP" value="${p.protein ?? ''}"></div>
+          <div class="field"><label>Fat (g)</label><input type="number" step="any" id="pfF" value="${p.fat ?? ''}"></div>
+          <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="pfC" value="${p.carbs ?? ''}"></div>
         </div>
+        ${productNeedsValues(p) ? `<div class="muted" style="font-size:12px; margin-top:-4px;">Leave any of these blank to fill in later — shown as <span class="badge-warn">needs values</span> until then.</div>` : ''}
         <div class="spread" style="margin-top:6px;"><label style="font-size:12px; color:var(--text-dim);">Custom servings</label><button type="button" class="btn btn-small" id="addServingBtn">+ Add</button></div>
         <div id="servingsList">${customServingsRowsHtml(servings, document.getElementById('pfBaseUnit')?.value || p.baseUnit)}</div>
         <button type="submit" class="btn btn-primary" style="margin-top:8px;">Save</button>
@@ -1211,13 +1289,14 @@ function openProductForm(id){
     document.getElementById('productForm').addEventListener('submit', async (e)=>{
       e.preventDefault();
       syncServingsFromDom();
+      const blankToNull = id => { const v = document.getElementById(id).value; return v==='' ? null : Number(v); };
       const data = {
         name: document.getElementById('pfName').value.trim(),
         baseUnit: document.getElementById('pfBaseUnit').value,
-        calories: Number(document.getElementById('pfCal').value)||0,
-        protein: Number(document.getElementById('pfP').value)||0,
-        fat: Number(document.getElementById('pfF').value)||0,
-        carbs: Number(document.getElementById('pfC').value)||0,
+        calories: blankToNull('pfCal'),
+        protein: blankToNull('pfP'),
+        fat: blankToNull('pfF'),
+        carbs: blankToNull('pfC'),
         customServings: servings.filter(s=>s.name.trim()).map(s=>({name:s.name.trim(), amount:Number(s.amount)||0})),
       };
       if(id) await userCol('products').doc(id).update(data);
