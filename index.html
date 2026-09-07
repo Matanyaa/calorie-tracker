@@ -328,6 +328,15 @@
         </div>
 
         <div class="card" style="margin-top:12px;">
+          <div class="spread"><h3>Categories</h3><button class="btn btn-small" id="addCategoryBtn">+ Add category</button></div>
+          <p class="muted" style="font-size:12px; margin-top:0;">Used to tag estimated products (e.g. by where they came from).</p>
+          <table>
+            <thead><tr><th>Name</th><th></th></tr></thead>
+            <tbody id="categoriesTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
           <h3>Backup</h3>
           <p class="muted" style="font-size:13px;">Download everything you've logged as a JSON file.</p>
           <button class="btn" id="exportDataBtn">Export data</button>
@@ -366,7 +375,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.4.0';
+const APP_VERSION = 'v0.5.0';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -389,6 +398,7 @@ const DEFAULT_UNITS = [
   {name:'tablespoon', ml:15},
   {name:'cup', ml:240},
 ];
+const DEFAULT_CATEGORIES = ['Restaurant', 'Home', 'Dining room'];
 
 /* =========================================================================
    FIREBASE INIT
@@ -556,6 +566,7 @@ function recipeMacrosPer100(recipe, productsById, recipesById, visited){
 }
 function productsById(){ return Object.fromEntries(state.products.map(p=>[p.id,p])); }
 function recipesById(){ return Object.fromEntries(state.recipes.map(r=>[r.id,r])); }
+function categoriesById(){ return Object.fromEntries(state.categories.map(c=>[c.id,c])); }
 
 // Resolve a chosen quantity (amount + unitKey) against a product/recipe into
 // a base-unit amount (grams for recipes; grams or ml for products).
@@ -588,6 +599,7 @@ const state = {
   user: null,
   settings: null,
   units: [],
+  categories: [],
   products: [],
   recipes: [],
   dayLogEntries: [],
@@ -727,6 +739,19 @@ async function initUserData(){
   unsubscribers.push(userCol('units').orderBy('ml').onSnapshot(s=>{
     state.units = s.docs.map(d=>({id:d.id, ...d.data()}));
     renderSettingsUnits();
+  }));
+
+  // Categories (for estimated products) — seed predefined ones on first login.
+  const categoriesSnap = await userCol('categories').get();
+  if(categoriesSnap.empty){
+    const batch = db.batch();
+    DEFAULT_CATEGORIES.forEach(name=> batch.set(userCol('categories').doc(), {name}));
+    await batch.commit();
+  }
+  unsubscribers.push(userCol('categories').orderBy('name').onSnapshot(s=>{
+    state.categories = s.docs.map(d=>({id:d.id, ...d.data()}));
+    renderSettingsCategories();
+    renderProducts();
   }));
 
   unsubscribers.push(userCol('products').orderBy('name').onSnapshot(s=>{
@@ -976,21 +1001,35 @@ function productNeedsValues(p){
 function openAddItemModal(meal){
   openModal(`
     <div class="modal-header"><h2>Add to ${MEAL_LABELS[meal]}</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
-    <input type="search" id="itemSearchInput" placeholder="Search products & recipes…" style="width:100%; margin-bottom:10px;" autofocus>
+    <div class="row-wrap" style="margin-bottom:10px;">
+      <input type="search" id="itemSearchInput" placeholder="Search products & recipes…" style="flex:2;" autofocus>
+      <select id="itemCategoryFilter" style="flex:1;">
+        <option value="">All categories</option>
+        ${state.categories.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+    </div>
     <div class="search-results" id="itemSearchResults"></div>
     <button type="button" class="btn" id="quickAddBtn" style="width:100%; margin-top:10px;">+ Quick add a one-off item</button>
   `);
   const input = document.getElementById('itemSearchInput');
+  const categoryFilter = document.getElementById('itemCategoryFilter');
   const results = document.getElementById('itemSearchResults');
   function renderResults(){
     const q = input.value.trim().toLowerCase();
-    const prods = state.products.filter(p=>p.name.toLowerCase().includes(q)).map(p=>({...p, itemType:'product'}));
-    const recs = state.recipes.filter(r=>r.name.toLowerCase().includes(q)).map(r=>({...r, itemType:'recipe'}));
+    const cat = categoryFilter.value;
+    // A category filter only narrows products (recipes aren't categorized) —
+    // picking one hides uncategorized/known products along with recipes.
+    const prods = state.products
+      .filter(p=>p.name.toLowerCase().includes(q))
+      .filter(p=> !cat || p.category === cat)
+      .map(p=>({...p, itemType:'product'}));
+    const recs = cat ? [] : state.recipes.filter(r=>r.name.toLowerCase().includes(q)).map(r=>({...r, itemType:'recipe'}));
     const all = [...prods, ...recs];
     results.innerHTML = all.length ? all.map(it=>`
       <div class="search-result" data-id="${it.id}" data-type="${it.itemType}">
         ${escapeHtml(it.name)} <span class="mute2">(${it.itemType})</span>
         ${it.itemType==='product' && productNeedsValues(it) ? '<span class="badge-warn">needs values</span>' : ''}
+        ${it.itemType==='product' ? accuracyBadgeHtml(it) : ''}
       </div>
     `).join('') : `<div class="empty-note">No matches. Add a product or recipe first, or quick-add a one-off below.</div>`;
     results.querySelectorAll('.search-result').forEach(el=>{
@@ -998,6 +1037,7 @@ function openAddItemModal(meal){
     });
   }
   input.addEventListener('input', renderResults);
+  categoryFilter.addEventListener('change', renderResults);
   renderResults();
   document.getElementById('quickAddBtn').addEventListener('click', ()=> openAdhocItemModal(meal));
 }
@@ -1287,13 +1327,19 @@ function renderWeek(){
 document.getElementById('productSearch').addEventListener('input', renderProducts);
 document.getElementById('addProductBtn').addEventListener('click', ()=> openProductForm(null));
 
+function accuracyBadgeHtml(p){
+  if(p.accuracy !== 'estimate') return '';
+  const cat = p.category ? categoriesById()[p.category] : null;
+  return ` <span class="badge" title="Estimated macros">${escapeHtml(cat ? cat.name : 'estimate')}</span>`;
+}
+
 function renderProducts(){
   const q = document.getElementById('productSearch').value.trim().toLowerCase();
   const list = state.products.filter(p=>p.name.toLowerCase().includes(q));
   document.getElementById('productsList').innerHTML = list.length ? list.map(p=>`
     <div class="list-item">
       <div>
-        <div class="item-name">${escapeHtml(p.name)}${productNeedsValues(p) ? ' <span class="badge-warn">needs values</span>' : ''}</div>
+        <div class="item-name">${escapeHtml(p.name)}${productNeedsValues(p) ? ' <span class="badge-warn">needs values</span>' : ''}${accuracyBadgeHtml(p)}</div>
         <div class="item-sub">per 100${p.baseUnit}: ${fmtCalOrDash(p.calories)} cal · P${fmtMacroOrDash(p.protein)} F${fmtMacroOrDash(p.fat)} C${fmtMacroOrDash(p.carbs)}</div>
       </div>
       <div class="row">
@@ -1322,7 +1368,7 @@ function customServingsRowsHtml(servings, unitLabel){
 
 function openProductForm(id){
   const original = id ? state.products.find(x=>x.id===id) : null;
-  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[]};
+  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[], accuracy:'known', category:null};
   let servings = JSON.parse(JSON.stringify(p.customServings||[]));
 
   function syncMainFieldsFromDom(){
@@ -1334,9 +1380,17 @@ function openProductForm(id){
     p.protein = document.getElementById('pfP').value;
     p.fat = document.getElementById('pfF').value;
     p.carbs = document.getElementById('pfC').value;
+    p.accuracy = document.getElementById('pfAccuracy').value;
+    const catEl = document.getElementById('pfCategory');
+    p.category = (p.accuracy==='estimate' && catEl) ? catEl.value : null;
+  }
+
+  function categoryOptionsHtml(selected){
+    return state.categories.map(c=>`<option value="${c.id}" ${c.id===selected?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
   }
 
   function render(){
+    const accuracy = p.accuracy || 'known';
     openModal(`
       <div class="modal-header"><h2>${id?'Edit':'New'} product</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
       <form id="productForm" class="col">
@@ -1351,12 +1405,25 @@ function openProductForm(id){
           <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="pfC" value="${p.carbs ?? ''}"></div>
         </div>
         ${productNeedsValues(p) ? `<div class="muted" style="font-size:12px; margin-top:-4px;">Leave any of these blank to fill in later — shown as <span class="badge-warn">needs values</span> until then.</div>` : ''}
+        <div class="field"><label>Macro accuracy</label>
+          <select id="pfAccuracy">
+            <option value="known" ${accuracy==='known'?'selected':''}>Known for sure (e.g. from a label)</option>
+            <option value="estimate" ${accuracy==='estimate'?'selected':''}>Estimate</option>
+          </select>
+        </div>
+        <div class="field ${accuracy!=='estimate'?'hidden':''}" id="pfCategoryField">
+          <label>Category</label>
+          <select id="pfCategory">${categoryOptionsHtml(p.category)}</select>
+        </div>
         <div class="spread" style="margin-top:6px;"><label style="font-size:12px; color:var(--text-dim);">Custom servings</label><button type="button" class="btn btn-small" id="addServingBtn">+ Add</button></div>
         <div id="servingsList">${customServingsRowsHtml(servings, document.getElementById('pfBaseUnit')?.value || p.baseUnit)}</div>
         <button type="submit" class="btn btn-primary" style="margin-top:8px;">Save</button>
       </form>
     `);
     document.getElementById('pfBaseUnit').addEventListener('change', render2ServingsLabel);
+    document.getElementById('pfAccuracy').addEventListener('change', (e)=>{
+      document.getElementById('pfCategoryField').classList.toggle('hidden', e.target.value !== 'estimate');
+    });
     document.getElementById('addServingBtn').addEventListener('click', ()=>{
       syncMainFieldsFromDom();
       syncServingsFromDom();
@@ -1391,6 +1458,8 @@ function openProductForm(id){
         fat: blankToNull('pfF'),
         carbs: blankToNull('pfC'),
         customServings: servings.filter(s=>s.name.trim()).map(s=>({name:s.name.trim(), amount:Number(s.amount)||0})),
+        accuracy: document.getElementById('pfAccuracy').value,
+        category: document.getElementById('pfAccuracy').value==='estimate' ? (document.getElementById('pfCategory').value || null) : null,
       };
       if(id) await userCol('products').doc(id).update(data);
       else await userCol('products').add(data);
@@ -1823,6 +1892,26 @@ function renderSettingsUnits(){
 
 document.getElementById('addUnitBtn').addEventListener('click', async ()=>{
   await userCol('units').add({name:'new unit', ml:0});
+});
+
+function renderSettingsCategories(){
+  document.getElementById('categoriesTableBody').innerHTML = state.categories.map(c=>`
+    <tr>
+      <td><input type="text" data-category-name="${c.id}" value="${escapeHtml(c.name)}" style="width:100%;"></td>
+      <td><button class="btn-icon" data-delete-category="${c.id}">&#128465;</button></td>
+    </tr>
+  `).join('');
+  document.querySelectorAll('[data-category-name]').forEach(el=> el.addEventListener('change', ()=>{
+    userCol('categories').doc(el.dataset.categoryName).update({name: el.value});
+  }));
+  document.querySelectorAll('[data-delete-category]').forEach(el=> el.addEventListener('click', async ()=>{
+    if(!confirm('Delete this category? Products using it will just show as uncategorized.')) return;
+    await userCol('categories').doc(el.dataset.deleteCategory).delete();
+  }));
+}
+
+document.getElementById('addCategoryBtn').addEventListener('click', async ()=>{
+  await userCol('categories').add({name:'new category'});
 });
 
 document.getElementById('exportDataBtn').addEventListener('click', async ()=>{
