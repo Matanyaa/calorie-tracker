@@ -202,7 +202,11 @@
         <div id="mealsContainer"></div>
 
         <div class="card" style="margin-top:14px;">
-          <label style="font-size:12px; color:var(--text-dim);">Notes for today</label>
+          <div class="row-wrap">
+            <label class="row" style="gap:6px; font-size:13px;"><input type="checkbox" id="fastingCheckbox"> Fasting today</label>
+            <label class="row" style="gap:6px; font-size:13px;"><input type="checkbox" id="partialCheckbox"> Partially logged</label>
+          </div>
+          <label style="font-size:12px; color:var(--text-dim); margin-top:10px; display:block;">Notes for today</label>
           <textarea id="dayNoteInput" rows="3" style="width:100%; resize:vertical; margin-top:6px;" placeholder="Anything worth remembering about today…"></textarea>
         </div>
       </section>
@@ -218,6 +222,10 @@
           <div class="summary-rows" id="weekSummary"></div>
         </div>
         <div class="card" style="margin-top:12px;">
+          <div class="summary-row-title">Average per tracked day <span id="weekAverageMeta" class="mute2"></span></div>
+          <div class="macro-grid" id="weekAverageGrid" style="margin-top:6px;"></div>
+        </div>
+        <div class="card" style="margin-top:12px;">
           <h3 style="font-size:13px; color:var(--text-dim); text-transform:uppercase; margin-bottom:8px;">Daily breakdown</h3>
           <table id="weekDaysTable"></table>
         </div>
@@ -228,6 +236,10 @@
         <div class="row" style="margin-bottom:10px;">
           <input type="search" id="productSearch" placeholder="Search products…" style="flex:1;">
           <button class="btn btn-primary" id="addProductBtn">+ New</button>
+        </div>
+        <div class="row-wrap" style="margin-bottom:10px; justify-content:space-between;">
+          <button class="btn btn-small" id="autoTagMealsBtn">Auto-tag "usually eaten at" from history</button>
+          <span class="mute2" id="autoTagStatus" style="font-size:12px;"></span>
         </div>
         <div class="card"><div id="productsList"></div></div>
       </section>
@@ -375,7 +387,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.5.1';
+const APP_VERSION = 'v0.6.0';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -606,6 +618,9 @@ const state = {
   weekLogEntries: [],
   weightEntries: [],
   dayNote: '',
+  dayFasting: false,
+  dayPartial: false,
+  weekDayFlags: {},
   currentTab: 'today',
   currentDate: todayStr(),
   weekAnchor: todayStr(),
@@ -788,11 +803,16 @@ let dayNoteUnsub = null;
 function subscribeDayNote(){
   if(dayNoteUnsub){ dayNoteUnsub(); dayNoteUnsub = null; }
   dayNoteUnsub = userCol('dayNotes').doc(state.currentDate).onSnapshot(s=>{
-    state.dayNote = (s.exists && s.data().text) || '';
+    const data = s.exists ? s.data() : {};
+    state.dayNote = data.text || '';
+    state.dayFasting = !!data.fasting;
+    state.dayPartial = !!data.partial;
     const el = document.getElementById('dayNoteInput');
     // Don't clobber what the user is actively typing — only sync when the
     // field isn't focused (e.g. after navigating to a different day).
     if(el && document.activeElement !== el) el.value = state.dayNote;
+    document.getElementById('fastingCheckbox').checked = state.dayFasting;
+    document.getElementById('partialCheckbox').checked = state.dayPartial;
   });
   unsubscribers.push(dayNoteUnsub);
 }
@@ -804,14 +824,28 @@ function scheduleDayNoteSave(text){
   }, 500);
 }
 let weekLogUnsub = null;
+let weekFlagsUnsub = null;
 function subscribeWeekLog(){
   if(weekLogUnsub){ weekLogUnsub(); weekLogUnsub = null; }
+  if(weekFlagsUnsub){ weekFlagsUnsub(); weekFlagsUnsub = null; }
   const {start, end} = getWeekRange(state.weekAnchor, state.settings ? state.settings.weekBoundary : null);
   weekLogUnsub = userCol('logEntries').where('date','>=',start).where('date','<=',end).onSnapshot(s=>{
     state.weekLogEntries = s.docs.map(d=>({id:d.id, ...d.data()}));
     renderWeek();
   });
   unsubscribers.push(weekLogUnsub);
+  // dayNotes doc IDs are the date strings themselves, so a document-id range
+  // query pulls exactly this week's fasting/partial flags (and notes, unused here).
+  weekFlagsUnsub = userCol('dayNotes')
+    .where(firebase.firestore.FieldPath.documentId(), '>=', start)
+    .where(firebase.firestore.FieldPath.documentId(), '<=', end)
+    .onSnapshot(s=>{
+      const flags = {};
+      s.docs.forEach(d=>{ flags[d.id] = d.data(); });
+      state.weekDayFlags = flags;
+      renderWeek();
+    });
+  unsubscribers.push(weekFlagsUnsub);
 }
 
 /* =========================================================================
@@ -871,6 +905,12 @@ function setCurrentDate(d){
 }
 document.getElementById('dayNoteInput').addEventListener('input', (e)=>{
   scheduleDayNoteSave(e.target.value);
+});
+document.getElementById('fastingCheckbox').addEventListener('change', (e)=>{
+  userCol('dayNotes').doc(state.currentDate).set({fasting: e.target.checked}, {merge:true}).catch(console.error);
+});
+document.getElementById('partialCheckbox').addEventListener('change', (e)=>{
+  userCol('dayNotes').doc(state.currentDate).set({partial: e.target.checked}, {merge:true}).catch(console.error);
 });
 
 function macroSummaryRowsHtml(consumed, target){
@@ -970,12 +1010,13 @@ function entryRowHtml(e){
   const m = computeEntryMacros(e);
   const qtyLabel = quantityLabel(e);
   const warnHtml = entryNeedsValuesWarning(e) ? ` <span class="badge-warn" title="This product still needs its macro values filled in">needs values</span>` : '';
+  const estimatedHtml = (e.quantity && e.quantity.estimated) ? ` <span class="badge" title="Amount was estimated, not weighed">~ estimated</span>` : '';
   const noteHtml = e.notes ? `<div class="entry-note">${escapeHtml(e.notes)}</div>` : '';
   return `
     <div class="item-row">
       <div>
         <div class="item-name">${escapeHtml(e.refName)}${warnHtml}</div>
-        <div class="item-sub">${qtyLabel}</div>
+        <div class="item-sub">${qtyLabel}${estimatedHtml}</div>
         ${noteHtml}
       </div>
       <div class="row">
@@ -1026,7 +1067,11 @@ function openAddItemModal(meal){
       .filter(p=> !cat || p.category === cat)
       .map(p=>({...p, itemType:'product'}));
     const recs = (!cat || cat === '__recipe') ? state.recipes.filter(r=>r.name.toLowerCase().includes(q)).map(r=>({...r, itemType:'recipe'})) : [];
-    const all = [...prods, ...recs];
+    // Products usually eaten at this meal float to the top, without hiding
+    // anything else — a stable sort keeps everyone's relative order intact.
+    const usual = prods.filter(p=> (p.standardMeals||[]).includes(meal));
+    const rest = prods.filter(p=> !(p.standardMeals||[]).includes(meal));
+    const all = [...usual, ...rest, ...recs];
     results.innerHTML = all.length ? all.map(it=>`
       <div class="search-result" data-id="${it.id}" data-type="${it.itemType}">
         ${escapeHtml(it.name)} <span class="mute2">(${it.itemType})</span>
@@ -1060,6 +1105,7 @@ function openAdhocItemModal(meal){
         <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="adhocC"></div>
       </div>
       <div class="field"><label>Amount actually consumed</label><input type="number" step="any" id="adhocAmount" value="100"></div>
+      <label class="row" style="gap:6px; font-size:13px;"><input type="checkbox" id="adhocEstimated"> Amount is an estimate (not weighed)</label>
       <div class="muted" id="adhocPreview" style="font-size:13px;"></div>
       <div class="field"><label>Notes (optional)</label><textarea id="adhocNotes" rows="2" style="width:100%; resize:vertical;" placeholder="e.g. estimate — check the real label later"></textarea></div>
       <button type="submit" class="btn btn-primary" style="margin-top:6px;">Add to ${MEAL_LABELS[meal]}</button>
@@ -1099,7 +1145,7 @@ function openAdhocItemModal(meal){
       itemType: 'adhoc',
       refId: null,
       refName: name,
-      quantity: {amount, unit:'base', unitLabel: `${baseUnit} (direct amount)`, baseAmount: amount, baseUnitLabel: baseUnit},
+      quantity: {amount, unit:'base', unitLabel: `${baseUnit} (direct amount)`, baseAmount: amount, baseUnitLabel: baseUnit, estimated: document.getElementById('adhocEstimated').checked},
       macros,
       notes: notes || null,
     });
@@ -1138,6 +1184,7 @@ function openQuantityModal(meal, refId, itemType){
         <select id="qtyUnit">${unitOptionsHtml(item, isRecipe)}</select>
       </div>
     </div>
+    <label class="row" style="gap:6px; font-size:13px; margin-top:6px;"><input type="checkbox" id="qtyEstimated"> Amount is an estimate (not weighed)</label>
     <div class="muted" id="qtyPreview" style="margin:10px 0; font-size:13px;"></div>
     <button class="btn btn-primary" id="qtyConfirmBtn" style="width:100%;">Add to ${MEAL_LABELS[meal]}</button>
   `);
@@ -1167,7 +1214,7 @@ function openQuantityModal(meal, refId, itemType){
       itemType,
       refId,
       refName: item.name,
-      quantity: {amount: Number(amountEl.value)||0, unit: unitEl.value, unitLabel, baseAmount: baseAmt, baseUnitLabel: baseUnitLabel(item, isRecipe)},
+      quantity: {amount: Number(amountEl.value)||0, unit: unitEl.value, unitLabel, baseAmount: baseAmt, baseUnitLabel: baseUnitLabel(item, isRecipe), estimated: document.getElementById('qtyEstimated').checked},
       macros,
     });
     closeModal();
@@ -1197,6 +1244,7 @@ function openEditEntryModal(entryId){
         <div class="field"><label>Amount</label><input type="number" id="qtyAmount" value="${entry.quantity ? entry.quantity.amount : 100}" step="any"></div>
         <div class="field"><label>Unit</label><select id="qtyUnit">${unitOptionsHtml(item, isRecipe)}</select></div>
       </div>
+      <label class="row" style="gap:6px; font-size:13px; margin-top:6px;"><input type="checkbox" id="qtyEstimated" ${entry.quantity && entry.quantity.estimated ? 'checked' : ''}> Amount is an estimate (not weighed)</label>
       <div class="muted" id="qtyPreview" style="margin:10px 0; font-size:13px;"></div>
     ` : `<p class="muted">${isAdhoc ? 'A one-off item — edit its values directly below.' : 'The original product/recipe was deleted — edit the values directly below.'}</p>
       <div class="field"><label>Name</label><input type="text" id="editName" value="${escapeHtml(entry.refName)}" required></div>
@@ -1210,6 +1258,7 @@ function openEditEntryModal(entryId){
         <div class="field"><label>Carbs</label><input type="number" step="any" id="editC" value="${round1(noItemPer100.carbs)}"></div>
       </div>
       <div class="field"><label>Amount actually consumed</label><input type="number" step="any" id="editAmount" value="${noItemAmount}"></div>
+      <label class="row" style="gap:6px; font-size:13px;"><input type="checkbox" id="editEstimated" ${entry.quantity && entry.quantity.estimated ? 'checked' : ''}> Amount is an estimate (not weighed)</label>
       <div class="muted" id="editPreview" style="font-size:13px;"></div>
     `}
     <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="editNotes" rows="2" style="width:100%; resize:vertical;">${escapeHtml(entry.notes||'')}</textarea></div>
@@ -1243,7 +1292,7 @@ function openEditEntryModal(entryId){
       const macros = scaleMacros(per100, baseAmt/100);
       const unitLabel = unitEl.options[unitEl.selectedIndex].text;
       await userCol('logEntries').doc(entryId).update({
-        quantity: {amount:Number(amountEl.value)||0, unit:unitEl.value, unitLabel, baseAmount: baseAmt, baseUnitLabel: baseUnitLabel(item, isRecipe)},
+        quantity: {amount:Number(amountEl.value)||0, unit:unitEl.value, unitLabel, baseAmount: baseAmt, baseUnitLabel: baseUnitLabel(item, isRecipe), estimated: document.getElementById('qtyEstimated').checked},
         macros,
         notes: notesValue(),
       });
@@ -1275,7 +1324,7 @@ function openEditEntryModal(entryId){
       const macros = scaleMacros(per100FromInputs(), amount/100);
       await userCol('logEntries').doc(entryId).update({
         refName: name,
-        quantity: {amount, unit:'base', unitLabel: `${baseUnit} (direct amount)`, baseAmount: amount, baseUnitLabel: baseUnit},
+        quantity: {amount, unit:'base', unitLabel: `${baseUnit} (direct amount)`, baseAmount: amount, baseUnitLabel: baseUnit, estimated: document.getElementById('editEstimated').checked},
         macros,
         notes: notesValue(),
       });
@@ -1313,14 +1362,39 @@ function renderWeek(){
 
   let rows = '<thead><tr><th>Day</th><th>Cal</th><th>P</th><th>F</th><th>C</th></tr></thead><tbody>';
   let d = start;
+  let countedDays = 0, anyPartial = false;
+  let trackedTotal = emptyMacros();
   while(d <= end){
     const dayEntries = state.weekLogEntries.filter(e=>e.date===d);
     const m = dayEntries.reduce((acc,e)=> addMacros(acc, computeEntryMacros(e)), emptyMacros());
-    rows += `<tr><td>${formatDateLabel(d)}</td><td>${fmtCal(m.calories)}</td><td>${fmtMacro(m.protein)}</td><td>${fmtMacro(m.fat)}</td><td>${fmtMacro(m.carbs)}</td></tr>`;
+    const flags = state.weekDayFlags[d] || {};
+    const hasLogged = dayEntries.length > 0;
+    // A day with nothing logged and no fasting flag is treated as untracked
+    // (forgot to log, was away, etc.) and left out of the average, rather
+    // than silently dragging it toward zero.
+    const counts = hasLogged || flags.fasting;
+    if(counts){
+      countedDays++;
+      trackedTotal = addMacros(trackedTotal, m);
+      if(flags.partial) anyPartial = true;
+    }
+    const tag = flags.fasting ? ' <span class="badge">fasting</span>' : (flags.partial ? ' <span class="badge-warn">partial</span>' : '');
+    rows += `<tr><td>${formatDateLabel(d)}${tag}</td><td>${fmtCal(m.calories)}</td><td>${fmtMacro(m.protein)}</td><td>${fmtMacro(m.fat)}</td><td>${fmtMacro(m.carbs)}</td></tr>`;
     d = addDays(d,1);
   }
   rows += '</tbody>';
   document.getElementById('weekDaysTable').innerHTML = rows;
+
+  const avg = countedDays > 0 ? scaleMacros(trackedTotal, 1/countedDays) : emptyMacros();
+  document.getElementById('weekAverageGrid').innerHTML = `
+    <div><div class="m-label">Calories</div><div class="m-val m-cal">${fmtCal(avg.calories)}</div></div>
+    <div><div class="m-label">Protein</div><div class="m-val m-protein">${fmtMacro(avg.protein)}</div></div>
+    <div><div class="m-label">Fat</div><div class="m-val m-fat">${fmtMacro(avg.fat)}</div></div>
+    <div><div class="m-label">Carbs</div><div class="m-val m-carb">${fmtMacro(avg.carbs)}</div></div>
+  `;
+  document.getElementById('weekAverageMeta').textContent = countedDays > 0
+    ? `(${countedDays} of ${nDays} days${anyPartial ? ' · includes a partial day' : ''})`
+    : '(no tracked days yet)';
 }
 
 /* =========================================================================
@@ -1328,6 +1402,49 @@ function renderWeek(){
    ========================================================================= */
 document.getElementById('productSearch').addEventListener('input', renderProducts);
 document.getElementById('addProductBtn').addEventListener('click', ()=> openProductForm(null));
+
+document.getElementById('autoTagMealsBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('autoTagStatus');
+  statusEl.textContent = 'Scanning your logging history…';
+  try{
+    const snap = await userCol('logEntries').get();
+    const mealsByProduct = {}; // refId -> Set of meals it's actually been logged under
+    snap.docs.forEach(d=>{
+      const e = d.data();
+      if(e.itemType !== 'product' || !e.refId || !e.meal) return;
+      if(!mealsByProduct[e.refId]) mealsByProduct[e.refId] = new Set();
+      mealsByProduct[e.refId].add(e.meal);
+    });
+
+    const catMap = categoriesById();
+    const updates = []; // {id, standardMeals}
+    state.products.forEach(p=>{
+      const merged = new Set(p.standardMeals || []);
+      (mealsByProduct[p.id] || []).forEach(m=> merged.add(m));
+      // A category name hints at when it's usually eaten, e.g. a "dining
+      // room" or "restaurant" product is rarely breakfast at home.
+      const catName = ((p.category && catMap[p.category] && catMap[p.category].name) || '').toLowerCase();
+      if(catName.includes('dining')) merged.add('lunch');
+      if(catName.includes('restaurant')){ merged.add('lunch'); merged.add('supper'); }
+      const mergedArr = MEAL_TYPES.filter(m=> merged.has(m));
+      const before = (p.standardMeals || []).slice().sort().join(',');
+      const after = mergedArr.slice().sort().join(',');
+      if(before !== after) updates.push({id:p.id, standardMeals: mergedArr});
+    });
+
+    if(updates.length === 0){
+      statusEl.textContent = 'Nothing to update — tags already match your history.';
+      return;
+    }
+    const batch = db.batch(); // fine for personal-scale product lists, well under the 500-write cap
+    updates.forEach(u=> batch.update(userCol('products').doc(u.id), {standardMeals: u.standardMeals}));
+    await batch.commit();
+    statusEl.textContent = `Updated ${updates.length} product${updates.length===1?'':'s'}.`;
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = 'Could not finish — see console.';
+  }
+});
 
 function categoryBadgeHtml(p){
   const cat = p.category ? categoriesById()[p.category] : null;
@@ -1369,7 +1486,7 @@ function customServingsRowsHtml(servings, unitLabel){
 
 function openProductForm(id){
   const original = id ? state.products.find(x=>x.id===id) : null;
-  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[], category:null};
+  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[], category:null, standardMeals:[]};
   let servings = JSON.parse(JSON.stringify(p.customServings||[]));
 
   function syncMainFieldsFromDom(){
@@ -1383,10 +1500,16 @@ function openProductForm(id){
     p.carbs = document.getElementById('pfC').value;
     const catEl = document.getElementById('pfCategory');
     if(catEl) p.category = catEl.value;
+    p.standardMeals = MEAL_TYPES.filter(m=> document.getElementById('pfMeal_'+m)?.checked);
   }
 
   function categoryOptionsHtml(selected){
-    return state.categories.map(c=>`<option value="${c.id}" ${c.id===selected?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
+    // An explicit blank option so an unset category stays unset rather than
+    // silently landing on whatever the browser defaults a <select> to
+    // (its first option) — which fed misleading results into the
+    // history/category auto-tag heuristic below.
+    return `<option value="" ${!selected?'selected':''}>— none —</option>`
+      + state.categories.map(c=>`<option value="${c.id}" ${c.id===selected?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
   }
 
   function render(){
@@ -1406,6 +1529,11 @@ function openProductForm(id){
         ${productNeedsValues(p) ? `<div class="muted" style="font-size:12px; margin-top:-4px;">Leave any of these blank to fill in later — shown as <span class="badge-warn">needs values</span> until then.</div>` : ''}
         <div class="field"><label>Category</label>
           <select id="pfCategory">${categoryOptionsHtml(p.category)}</select>
+        </div>
+        <div class="field"><label>Usually eaten at (used to sort it to the top when logging)</label>
+          <div class="row-wrap">
+            ${MEAL_TYPES.map(m=>`<label class="row" style="gap:5px; font-size:13px;"><input type="checkbox" id="pfMeal_${m}" ${(p.standardMeals||[]).includes(m)?'checked':''}> ${MEAL_LABELS[m]}</label>`).join('')}
+          </div>
         </div>
         <div class="spread" style="margin-top:6px;"><label style="font-size:12px; color:var(--text-dim);">Custom servings</label><button type="button" class="btn btn-small" id="addServingBtn">+ Add</button></div>
         <div id="servingsList">${customServingsRowsHtml(servings, document.getElementById('pfBaseUnit')?.value || p.baseUnit)}</div>
@@ -1448,6 +1576,7 @@ function openProductForm(id){
         carbs: blankToNull('pfC'),
         customServings: servings.filter(s=>s.name.trim()).map(s=>({name:s.name.trim(), amount:Number(s.amount)||0})),
         category: document.getElementById('pfCategory').value || null,
+        standardMeals: MEAL_TYPES.filter(m=> document.getElementById('pfMeal_'+m).checked),
       };
       if(id) await userCol('products').doc(id).update(data);
       else await userCol('products').add(data);
