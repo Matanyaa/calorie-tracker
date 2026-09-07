@@ -375,7 +375,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.5.0';
+const APP_VERSION = 'v0.5.1';
 const APP_VERSION_DATE = '2026-09-05';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -398,7 +398,7 @@ const DEFAULT_UNITS = [
   {name:'tablespoon', ml:15},
   {name:'cup', ml:240},
 ];
-const DEFAULT_CATEGORIES = ['Restaurant', 'Home', 'Dining room'];
+const DEFAULT_CATEGORIES = ['Known', 'Restaurant', 'Home', 'Dining room'];
 
 /* =========================================================================
    FIREBASE INIT
@@ -1006,6 +1006,7 @@ function openAddItemModal(meal){
       <select id="itemCategoryFilter" style="flex:1;">
         <option value="">All categories</option>
         ${state.categories.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+        <option value="__recipe">Recipe</option>
       </select>
     </div>
     <div class="search-results" id="itemSearchResults"></div>
@@ -1017,19 +1018,20 @@ function openAddItemModal(meal){
   function renderResults(){
     const q = input.value.trim().toLowerCase();
     const cat = categoryFilter.value;
-    // A category filter only narrows products (recipes aren't categorized) —
-    // picking one hides uncategorized/known products along with recipes.
-    const prods = state.products
+    // "Recipe" is a virtual category standing in for the whole recipes
+    // list; a real category id narrows products to that category only;
+    // no filter (empty value) shows everything.
+    const prods = cat === '__recipe' ? [] : state.products
       .filter(p=>p.name.toLowerCase().includes(q))
       .filter(p=> !cat || p.category === cat)
       .map(p=>({...p, itemType:'product'}));
-    const recs = cat ? [] : state.recipes.filter(r=>r.name.toLowerCase().includes(q)).map(r=>({...r, itemType:'recipe'}));
+    const recs = (!cat || cat === '__recipe') ? state.recipes.filter(r=>r.name.toLowerCase().includes(q)).map(r=>({...r, itemType:'recipe'})) : [];
     const all = [...prods, ...recs];
     results.innerHTML = all.length ? all.map(it=>`
       <div class="search-result" data-id="${it.id}" data-type="${it.itemType}">
         ${escapeHtml(it.name)} <span class="mute2">(${it.itemType})</span>
         ${it.itemType==='product' && productNeedsValues(it) ? '<span class="badge-warn">needs values</span>' : ''}
-        ${it.itemType==='product' ? accuracyBadgeHtml(it) : ''}
+        ${it.itemType==='product' ? categoryBadgeHtml(it) : ''}
       </div>
     `).join('') : `<div class="empty-note">No matches. Add a product or recipe first, or quick-add a one-off below.</div>`;
     results.querySelectorAll('.search-result').forEach(el=>{
@@ -1327,10 +1329,9 @@ function renderWeek(){
 document.getElementById('productSearch').addEventListener('input', renderProducts);
 document.getElementById('addProductBtn').addEventListener('click', ()=> openProductForm(null));
 
-function accuracyBadgeHtml(p){
-  if(p.accuracy !== 'estimate') return '';
+function categoryBadgeHtml(p){
   const cat = p.category ? categoriesById()[p.category] : null;
-  return ` <span class="badge" title="Estimated macros">${escapeHtml(cat ? cat.name : 'estimate')}</span>`;
+  return cat ? ` <span class="badge">${escapeHtml(cat.name)}</span>` : '';
 }
 
 function renderProducts(){
@@ -1339,7 +1340,7 @@ function renderProducts(){
   document.getElementById('productsList').innerHTML = list.length ? list.map(p=>`
     <div class="list-item">
       <div>
-        <div class="item-name">${escapeHtml(p.name)}${productNeedsValues(p) ? ' <span class="badge-warn">needs values</span>' : ''}${accuracyBadgeHtml(p)}</div>
+        <div class="item-name">${escapeHtml(p.name)}${productNeedsValues(p) ? ' <span class="badge-warn">needs values</span>' : ''}${categoryBadgeHtml(p)}</div>
         <div class="item-sub">per 100${p.baseUnit}: ${fmtCalOrDash(p.calories)} cal · P${fmtMacroOrDash(p.protein)} F${fmtMacroOrDash(p.fat)} C${fmtMacroOrDash(p.carbs)}</div>
       </div>
       <div class="row">
@@ -1368,7 +1369,7 @@ function customServingsRowsHtml(servings, unitLabel){
 
 function openProductForm(id){
   const original = id ? state.products.find(x=>x.id===id) : null;
-  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[], accuracy:'known', category:null};
+  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[], category:null};
   let servings = JSON.parse(JSON.stringify(p.customServings||[]));
 
   function syncMainFieldsFromDom(){
@@ -1380,9 +1381,8 @@ function openProductForm(id){
     p.protein = document.getElementById('pfP').value;
     p.fat = document.getElementById('pfF').value;
     p.carbs = document.getElementById('pfC').value;
-    p.accuracy = document.getElementById('pfAccuracy').value;
     const catEl = document.getElementById('pfCategory');
-    p.category = (p.accuracy==='estimate' && catEl) ? catEl.value : null;
+    if(catEl) p.category = catEl.value;
   }
 
   function categoryOptionsHtml(selected){
@@ -1390,7 +1390,6 @@ function openProductForm(id){
   }
 
   function render(){
-    const accuracy = p.accuracy || 'known';
     openModal(`
       <div class="modal-header"><h2>${id?'Edit':'New'} product</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
       <form id="productForm" class="col">
@@ -1405,14 +1404,7 @@ function openProductForm(id){
           <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="pfC" value="${p.carbs ?? ''}"></div>
         </div>
         ${productNeedsValues(p) ? `<div class="muted" style="font-size:12px; margin-top:-4px;">Leave any of these blank to fill in later — shown as <span class="badge-warn">needs values</span> until then.</div>` : ''}
-        <div class="field"><label>Macro accuracy</label>
-          <select id="pfAccuracy">
-            <option value="known" ${accuracy==='known'?'selected':''}>Known for sure (e.g. from a label)</option>
-            <option value="estimate" ${accuracy==='estimate'?'selected':''}>Estimate</option>
-          </select>
-        </div>
-        <div class="field ${accuracy!=='estimate'?'hidden':''}" id="pfCategoryField">
-          <label>Category</label>
+        <div class="field"><label>Category</label>
           <select id="pfCategory">${categoryOptionsHtml(p.category)}</select>
         </div>
         <div class="spread" style="margin-top:6px;"><label style="font-size:12px; color:var(--text-dim);">Custom servings</label><button type="button" class="btn btn-small" id="addServingBtn">+ Add</button></div>
@@ -1421,9 +1413,6 @@ function openProductForm(id){
       </form>
     `);
     document.getElementById('pfBaseUnit').addEventListener('change', render2ServingsLabel);
-    document.getElementById('pfAccuracy').addEventListener('change', (e)=>{
-      document.getElementById('pfCategoryField').classList.toggle('hidden', e.target.value !== 'estimate');
-    });
     document.getElementById('addServingBtn').addEventListener('click', ()=>{
       syncMainFieldsFromDom();
       syncServingsFromDom();
@@ -1458,8 +1447,7 @@ function openProductForm(id){
         fat: blankToNull('pfF'),
         carbs: blankToNull('pfC'),
         customServings: servings.filter(s=>s.name.trim()).map(s=>({name:s.name.trim(), amount:Number(s.amount)||0})),
-        accuracy: document.getElementById('pfAccuracy').value,
-        category: document.getElementById('pfAccuracy').value==='estimate' ? (document.getElementById('pfCategory').value || null) : null,
+        category: document.getElementById('pfCategory').value || null,
       };
       if(id) await userCol('products').doc(id).update(data);
       else await userCol('products').add(data);
