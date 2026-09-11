@@ -377,6 +377,12 @@
         </div>
 
         <div class="card" style="margin-top:12px;">
+          <h3>Suggested cleanup (one-time)</h3>
+          <p class="muted" style="font-size:13px; margin-top:0;">Groups 28 look-alike products (Pro yogurt/drinks, pizza, burekas, mushrooms, the "Burgers" place items, tuna, sauces, soft drinks, sweets) into families. Nothing is renamed, merged, or deleted — take a backup above first if you haven't already. This button removes itself once used.</p>
+          <button class="btn" id="applySuggestedFamiliesBtn">Apply suggested families</button>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
           <h3>About</h3>
           <div class="version-row">
             <span id="appVersionLabel"></span>
@@ -409,7 +415,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.8.0';
+const APP_VERSION = 'v0.9.0';
 const APP_VERSION_DATE = '2026-09-12';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -2751,6 +2757,87 @@ async function revertToBackup(backupId){
   await batch.commit();
   alert('Restored. Your products, recipes, and families now match that backup.');
 }
+
+/* =========================================================================
+   ONE-TIME: apply the suggested family cleanup discussed in chat on
+   2026-09-12. Exact product ids from that day's backup — see
+   backups/macro-tracker-products-recipes-backup-2026-09-12.json. Additive
+   only (assigns familyId; renames/deletes nothing). Remove this block plus
+   its Settings button+card once applied.
+   ========================================================================= */
+document.getElementById('applySuggestedFamiliesBtn').addEventListener('click', async ()=>{
+  if(state.families.some(f=>f.name==='פרו')){
+    if(!confirm('A "פרו" family already exists — this looks like it may have already been applied. Run it again anyway?')) return;
+  }
+  if(!confirm('Create 10 families and tag 28 products with them? This only adds family tags — nothing is renamed or deleted, and it\'s reversible from the backup.')) return;
+
+  const fam = {
+    pro: userCol('families').doc(),
+    proYogurt: userCol('families').doc(),
+    proDrink: userCol('families').doc(),
+    pizza: userCol('families').doc(),
+    burekas: userCol('families').doc(),
+    mushrooms: userCol('families').doc(),
+    burgersPlace: userCol('families').doc(),
+    tuna: userCol('families').doc(),
+    sauces: userCol('families').doc(),
+    drinks: userCol('families').doc(),
+    sweets: userCol('families').doc(),
+  };
+  const batch = db.batch();
+  batch.set(fam.pro, {name:'פרו', parentId:null});
+  batch.set(fam.proYogurt, {name:'יוגורט פרו', parentId:fam.pro.id});
+  batch.set(fam.proDrink, {name:'משקה פרו', parentId:fam.pro.id});
+  batch.set(fam.pizza, {name:'פיצה', parentId:null});
+  batch.set(fam.burekas, {name:'בורקס', parentId:null});
+  batch.set(fam.mushrooms, {name:'פטריות', parentId:null});
+  batch.set(fam.burgersPlace, {name:'בורגרים (מסעדה)', parentId:null});
+  batch.set(fam.tuna, {name:'טונה', parentId:null});
+  batch.set(fam.sauces, {name:'רטבים ותוספות', parentId:null});
+  batch.set(fam.drinks, {name:'משקאות קלים', parentId:null});
+  batch.set(fam.sweets, {name:'ממתקים', parentId:null});
+
+  const assignments = [
+    ['csBnEblf2oIrhUyeGahq', fam.proYogurt],   // דנונה פרו muller
+    ['BVccum3qqB6VufVRAZi3', fam.proYogurt],   // דנונה פרו אורירי go
+    ['EOAzIVnwNZu9U6Fr8b8t', fam.proDrink],    // משקה פרו 1.5% שומן
+    ['LGsFefnd8KqZKcQGsBNQ', fam.proDrink],    // משקה פרו ללא סוכר
+    ['FjfyAQZDEWhSOHrD4RtU', fam.proDrink],    // משקה פרו מנגו אננס
+    ['g02jE3dZkFlqkav8Gmve', fam.pizza],       // פיצה איטלקית דקה שלושת האופים
+    ['slUsY7zMUsXBnF3lo57C', fam.pizza],       // פיצה אישית סופר
+    ['9mxZhOzJWsya3gvlOc2d', fam.burekas],     // בורקס בשר הכנה ביתית
+    ['jneWgMBhrIkQ5zRqWLS7', fam.burekas],     // בורקס תפוח אדמה מאפיה
+    ['Jeh8mvQYQJtczi1uz5AZ', fam.mushrooms],   // פטריות פורטבלו
+    ['wmFfEAlQhCUYG1ijar81', fam.mushrooms],   // פטריות שמפיניון
+    ['gvE1nmTQUyK6mtLh87Tx', fam.burgersPlace],// בורגר - בורגרים
+    ['bsFBQMNjumHXIuFl8Sp3', fam.burgersPlace],// קרוקט תפו"א - בורגרים
+    ['CgFmytMjEwnT67aQwPe6', fam.tuna],        // טונה שימורים
+    ['qInjJcvwh13Iog7mYuSN', fam.tuna],        // כריך טונה ארומה ללא רוטב
+    ['gZW5pqstfZXWYwJovFpD', fam.sauces],      // טחינה
+    ['ZWjTKNQLyKWOhwXBgWL1', fam.sauces],      // דבש
+    ['hWc11L2HCrQ4bzCa8di9', fam.sauces],      // שמן
+    ['7gWzKjerOaEA7cN1Ez5e', fam.sauces],      // רוטב פטריות - ביתי
+    ['BlPz0qnICJreCsVcY7gF', fam.sauces],      // ממרח חומס תעשייתי
+    ['Swmu3MTtYqmpZ5lZovm3', fam.drinks],      // מים בטעמים
+    ['wybxl3sJ05Lh8zkVXmoL', fam.drinks],      // קולה
+    ['q2Q6TNtLmxlgMCtqxiO9', fam.drinks],      // משקה קל ענבים - תפוזינה
+    ['fPTS2EJiLOA1y42LH0sd', fam.drinks],      // טיבר strawberry pineapple
+    ['xvjbRWGT3UttFRxQvceI', fam.sweets],      // ארטיק אננס
+    ['S10kHasvdQpukaDPItso', fam.sweets],      // טובלרון לבן
+    ['oFGdGl2fjUjIIWstePBC', fam.sweets],      // מייק אנד אייק
+    ['pqmEEDBRhVJShOen3Vql', fam.sweets],      // קינדר בואנו
+  ];
+  let missing = 0;
+  assignments.forEach(([productId, famRef])=>{
+    if(!productsById()[productId]){ missing++; return; } // product since deleted/renamed away — skip rather than fail the whole batch
+    batch.update(userCol('products').doc(productId), {familyId: famRef.id});
+  });
+
+  await batch.commit();
+  document.getElementById('applySuggestedFamiliesBtn').disabled = true;
+  document.getElementById('applySuggestedFamiliesBtn').textContent = 'Applied';
+  alert(`Done — created 10 families and tagged ${assignments.length - missing} products.` + (missing ? ` (${missing} of the expected products weren't found, so were skipped.)` : ''));
+});
 
 /* =========================================================================
    VERSION CHECK / UPDATE BANNER  (same pattern as split-builder)
