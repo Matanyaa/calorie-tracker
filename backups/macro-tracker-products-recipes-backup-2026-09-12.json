@@ -1,0 +1,777 @@
+{
+  "createdAt": "2026-09-11T21:27:00.559Z",
+  "products": [
+    {
+      "id": "akidWO9lANj4Db76iJXJ",
+      "customServings": [],
+      "fat": 0.3,
+      "standardMeals": [
+        "lunch"
+      ],
+      "baseUnit": "g",
+      "calories": 130,
+      "name": "אורז חדר אוכל",
+      "protein": 2.7,
+      "carbs": 28,
+      "category": "1vKa1AEZorZLho9ZVXMs"
+    },
+    {
+      "id": "xvjbRWGT3UttFRxQvceI",
+      "name": "ארטיק אננס",
+      "baseUnit": "g",
+      "protein": 0,
+      "customServings": [
+        {
+          "amount": 75,
+          "name": "Unit"
+        }
+      ],
+      "carbs": 19.6,
+      "calories": 78,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "fat": 0,
+      "standardMeals": [
+        "extra"
+      ]
+    },
+    {
+      "id": "gvE1nmTQUyK6mtLh87Tx",
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "fat": 15,
+      "standardMeals": [
+        "lunch",
+        "supper"
+      ],
+      "calories": 310,
+      "protein": 16,
+      "customServings": [
+        {
+          "amount": 80,
+          "name": "Unit"
+        }
+      ],
+      "baseUnit": "g",
+      "name": "בורגר - בורגרים",
+      "carbs": 30
+    },
+    {
+      "id": "9mxZhOzJWsya3gvlOc2d",
+      "category": "odKQIAd2MYQ4kOnjAq76",
+      "baseUnit": "g",
+      "protein": 12,
+      "fat": 19,
+      "name": "בורקס בשר הכנה ביתית",
+      "calories": 310,
+      "carbs": 26,
+      "customServings": [
+        {
+          "name": "Big slice",
+          "amount": 120
+        }
+      ]
+    },
+    {
+      "id": "jneWgMBhrIkQ5zRqWLS7",
+      "customServings": [
+        {
+          "name": "Standard",
+          "amount": 80
+        }
+      ],
+      "calories": 340,
+      "fat": 6.5,
+      "name": "בורקס תפוח אדמה מאפיה",
+      "baseUnit": "g",
+      "protein": 22,
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "carbs": 33
+    },
+    {
+      "id": "X5f33h0YOj2HZR2q9UXq",
+      "carbs": 1,
+      "calories": 304,
+      "fat": 24,
+      "name": "גבינת חלומי",
+      "customServings": [],
+      "protein": 21,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "baseUnit": "g"
+    },
+    {
+      "id": "ZWjTKNQLyKWOhwXBgWL1",
+      "protein": 0,
+      "calories": 320,
+      "name": "דבש",
+      "fat": 0,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "customServings": [],
+      "carbs": 7.2,
+      "baseUnit": "g"
+    },
+    {
+      "id": "csBnEblf2oIrhUyeGahq",
+      "protein": 12.5,
+      "calories": 68,
+      "name": "דנונה פרו muller",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "fat": 0,
+      "customServings": [
+        {
+          "amount": 200,
+          "name": "Unit"
+        }
+      ],
+      "baseUnit": "g",
+      "carbs": 5.8
+    },
+    {
+      "id": "BVccum3qqB6VufVRAZi3",
+      "standardMeals": [
+        "breakfast"
+      ],
+      "baseUnit": "g",
+      "protein": 10,
+      "name": "דנונה פרו אורירי go",
+      "fat": 1,
+      "calories": 64,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 200
+        }
+      ],
+      "carbs": 3.6,
+      "category": "jbyqicYhzQ93gDypF5lF"
+    },
+    {
+      "id": "eVZV2hIwZ1sSl3wj2W0H",
+      "standardMeals": [
+        "breakfast",
+        "supper"
+      ],
+      "baseUnit": "g",
+      "carbs": 1,
+      "protein": 13,
+      "name": "חביתה",
+      "category": "odKQIAd2MYQ4kOnjAq76",
+      "fat": 15,
+      "calories": 195,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 60
+        }
+      ]
+    },
+    {
+      "id": "Fr07lEDoLj6F3T8ATlgx",
+      "category": "1vKa1AEZorZLho9ZVXMs",
+      "fat": 2.6,
+      "calories": 164,
+      "standardMeals": [
+        "lunch"
+      ],
+      "protein": 9,
+      "baseUnit": "g",
+      "customServings": [],
+      "name": "חומוס גרגרים מבושל",
+      "carbs": 27
+    },
+    {
+      "id": "3FmifQBZWAYM5MZsukND",
+      "baseUnit": "g",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "carbs": 0,
+      "protein": 31,
+      "fat": 3.6,
+      "name": "חזה עוף (לפני בישול)",
+      "customServings": [],
+      "calories": 165
+    },
+    {
+      "id": "61MxIRx9qBt872l9TRNA",
+      "baseUnit": "g",
+      "fat": 17,
+      "protein": 4,
+      "name": "טבעות בצל",
+      "standardMeals": [
+        "lunch",
+        "supper"
+      ],
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 15
+        }
+      ],
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "carbs": 30,
+      "calories": 300
+    },
+    {
+      "id": "S10kHasvdQpukaDPItso",
+      "fat": 32,
+      "baseUnit": "g",
+      "customServings": [
+        {
+          "amount": 35,
+          "name": "Unit"
+        }
+      ],
+      "standardMeals": [
+        "extra"
+      ],
+      "protein": 6,
+      "calories": 550,
+      "name": "טובלרון לבן",
+      "category": null,
+      "carbs": 58
+    },
+    {
+      "id": "CgFmytMjEwnT67aQwPe6",
+      "fat": 5.3,
+      "baseUnit": "g",
+      "name": "טונה שימורים",
+      "standardMeals": [
+        "breakfast",
+        "lunch",
+        "supper"
+      ],
+      "protein": 27,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "carbs": 0,
+      "customServings": [
+        {
+          "amount": 160,
+          "name": "Unit"
+        }
+      ],
+      "calories": 162
+    },
+    {
+      "id": "gZW5pqstfZXWYwJovFpD",
+      "calories": 520,
+      "protein": 17,
+      "fat": 50,
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "name": "טחינה",
+      "standardMeals": [
+        "breakfast",
+        "lunch",
+        "supper",
+        "extra"
+      ],
+      "carbs": 14,
+      "customServings": [],
+      "baseUnit": "g"
+    },
+    {
+      "id": "fPTS2EJiLOA1y42LH0sd",
+      "calories": 40,
+      "carbs": 9,
+      "customServings": [
+        {
+          "amount": 550,
+          "name": "Medium"
+        }
+      ],
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "standardMeals": [
+        "extra"
+      ],
+      "protein": 0,
+      "name": "טיבר strawberry pineapple",
+      "baseUnit": "ml",
+      "fat": 0
+    },
+    {
+      "id": "s7BWr5EXsTZW5Gi7EeZb",
+      "baseUnit": "g",
+      "fat": 16,
+      "protein": 4,
+      "carbs": 18,
+      "name": "כרובית מטוגנת",
+      "customServings": [
+        {
+          "amount": 150,
+          "name": "Side plate"
+        },
+        {
+          "amount": 20,
+          "name": "Unit"
+        }
+      ],
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "standardMeals": [
+        "lunch",
+        "supper"
+      ],
+      "calories": 230
+    },
+    {
+      "id": "qInjJcvwh13Iog7mYuSN",
+      "customServings": [
+        {
+          "amount": 300,
+          "name": "Sandwich"
+        }
+      ],
+      "calories": 155,
+      "protein": 10.6,
+      "baseUnit": "g",
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "name": "כריך טונה ארומה ללא רוטב",
+      "fat": 2.4,
+      "carbs": 21.5
+    },
+    {
+      "id": "oFGdGl2fjUjIIWstePBC",
+      "name": "מייק אנד אייק",
+      "carbs": 80,
+      "protein": 0,
+      "baseUnit": "g",
+      "standardMeals": [
+        "extra"
+      ],
+      "customServings": [
+        {
+          "name": "Single",
+          "amount": 5
+        }
+      ],
+      "fat": 30,
+      "calories": 600,
+      "category": "5jOzwMvdCsYAW37wVJQ7"
+    },
+    {
+      "id": "Swmu3MTtYqmpZ5lZovm3",
+      "name": "מים בטעמים",
+      "carbs": 3.8,
+      "baseUnit": "ml",
+      "protein": 0,
+      "standardMeals": [
+        "lunch",
+        "supper",
+        "extra"
+      ],
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "fat": 0,
+      "calories": 15,
+      "customServings": [
+        {
+          "amount": 500,
+          "name": "Bottle"
+        }
+      ]
+    },
+    {
+      "id": "BlPz0qnICJreCsVcY7gF",
+      "name": "ממרח חומס תעשייתי",
+      "customServings": [],
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "protein": 8,
+      "standardMeals": [
+        "lunch",
+        "supper"
+      ],
+      "calories": 165,
+      "carbs": 18,
+      "fat": 7.5,
+      "baseUnit": "g"
+    },
+    {
+      "id": "EOAzIVnwNZu9U6Fr8b8t",
+      "protein": 7,
+      "carbs": 5,
+      "calories": 65,
+      "name": "משקה פרו 1.5% שומן",
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 350
+        }
+      ],
+      "baseUnit": "ml",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "fat": 2
+    },
+    {
+      "id": "LGsFefnd8KqZKcQGsBNQ",
+      "name": "משקה פרו ללא סוכר",
+      "calories": 40,
+      "fat": 0,
+      "protein": 7,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 350
+        }
+      ],
+      "carbs": 2,
+      "baseUnit": "ml",
+      "category": "jbyqicYhzQ93gDypF5lF"
+    },
+    {
+      "id": "FjfyAQZDEWhSOHrD4RtU",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "protein": 8.4,
+      "standardMeals": [
+        "breakfast"
+      ],
+      "fat": 0.5,
+      "name": "משקה פרו מנגו אננס",
+      "calories": 53,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 237
+        }
+      ],
+      "baseUnit": "ml",
+      "carbs": 3.7
+    },
+    {
+      "id": "q2Q6TNtLmxlgMCtqxiO9",
+      "protein": 6.3,
+      "baseUnit": "ml",
+      "name": "משקה קל ענבים - תפוזינה",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "calories": 20,
+      "fat": 0,
+      "carbs": 0,
+      "customServings": []
+    },
+    {
+      "id": "JkjYfHR0MvfF97fUdKEP",
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 25
+        }
+      ],
+      "baseUnit": "g",
+      "protein": 15,
+      "fat": 17,
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "calories": 290,
+      "name": "נאגטס",
+      "carbs": 16,
+      "standardMeals": [
+        "lunch",
+        "supper"
+      ]
+    },
+    {
+      "id": "EbRpwlP7jDrHqbkWTvNA",
+      "name": "סוכר לבן",
+      "carbs": 100,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "calories": 400,
+      "baseUnit": "g",
+      "customServings": [],
+      "protein": 0,
+      "fat": 0,
+      "standardMeals": []
+    },
+    {
+      "id": "V13atBf8s7RTa6dp1cHK",
+      "baseUnit": "g",
+      "protein": 20,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 85
+        }
+      ],
+      "name": "סלמון בצילי",
+      "standardMeals": [
+        "breakfast"
+      ],
+      "category": "1vKa1AEZorZLho9ZVXMs",
+      "fat": 12,
+      "carbs": 4,
+      "calories": 195
+    },
+    {
+      "id": "tG6icZ08Q5rGwQN7F6ot",
+      "calories": 20,
+      "protein": 0.9,
+      "carbs": 3.9,
+      "baseUnit": "g",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "name": "עגבניה",
+      "fat": 0.2,
+      "customServings": []
+    },
+    {
+      "id": "HqHjJC5H5huvTS6cY5zN",
+      "customServings": [],
+      "baseUnit": "g",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "carbs": 46,
+      "protein": 23,
+      "fat": 2,
+      "calories": 329,
+      "name": "עדשים שחורות"
+    },
+    {
+      "id": "Jeh8mvQYQJtczi1uz5AZ",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "protein": 2.1,
+      "customServings": [],
+      "baseUnit": "g",
+      "name": "פטריות פורטבלו",
+      "fat": 0.3,
+      "carbs": 3.9,
+      "calories": 29
+    },
+    {
+      "id": "wmFfEAlQhCUYG1ijar81",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "name": "פטריות שמפיניון",
+      "baseUnit": "g",
+      "fat": 0.3,
+      "calories": 22,
+      "carbs": 3.2,
+      "protein": 3.1,
+      "customServings": []
+    },
+    {
+      "id": "g02jE3dZkFlqkav8Gmve",
+      "baseUnit": "g",
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 320
+        }
+      ],
+      "standardMeals": [
+        "breakfast",
+        "supper"
+      ],
+      "fat": 6.7,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "name": "פיצה איטלקית דקה שלושת האופים",
+      "protein": 9.5,
+      "carbs": 33.2,
+      "calories": 234
+    },
+    {
+      "id": "slUsY7zMUsXBnF3lo57C",
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 80
+        }
+      ],
+      "fat": 8.9,
+      "calories": 256,
+      "standardMeals": [
+        "breakfast",
+        "lunch",
+        "supper",
+        "extra"
+      ],
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "carbs": 34,
+      "baseUnit": "g",
+      "name": "פיצה אישית סופר",
+      "protein": 9.9
+    },
+    {
+      "id": "QcCvM0hGJbnDjxsUK5P0",
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 90
+        }
+      ],
+      "carbs": 53,
+      "fat": 2,
+      "baseUnit": "g",
+      "name": "פיתה",
+      "calories": 275,
+      "standardMeals": [
+        "breakfast",
+        "lunch",
+        "supper",
+        "extra"
+      ],
+      "protein": 9,
+      "category": "5jOzwMvdCsYAW37wVJQ7"
+    },
+    {
+      "id": "0WK4jbs2Lcs95Ri5lBLU",
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "protein": 10,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 20
+        }
+      ],
+      "calories": 330,
+      "name": "פלאפל",
+      "baseUnit": "g",
+      "fat": 20,
+      "standardMeals": [
+        "lunch",
+        "supper"
+      ],
+      "carbs": 28
+    },
+    {
+      "id": "l5TD8l41PnHQqHDkZqzX",
+      "fat": 1,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "customServings": [],
+      "baseUnit": "g",
+      "name": "פתיתים",
+      "protein": 11,
+      "calories": 369,
+      "carbs": 78
+    },
+    {
+      "id": "wybxl3sJ05Lh8zkVXmoL",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "name": "קולה",
+      "baseUnit": "ml",
+      "carbs": 10.6,
+      "fat": 0,
+      "calories": 42,
+      "protein": 0,
+      "customServings": []
+    },
+    {
+      "id": "pqmEEDBRhVJShOen3Vql",
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "baseUnit": "g",
+      "name": "קינדר בואנו",
+      "fat": 37.5,
+      "carbs": 50.7,
+      "protein": 8.9,
+      "calories": 582,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 22
+        }
+      ]
+    },
+    {
+      "id": "bsFBQMNjumHXIuFl8Sp3",
+      "calories": 240,
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 20
+        }
+      ],
+      "standardMeals": [
+        "lunch",
+        "supper"
+      ],
+      "carbs": 3,
+      "category": "5jOzwMvdCsYAW37wVJQ7",
+      "name": "קרוקט תפו\"א - בורגרים",
+      "fat": 13,
+      "baseUnit": "g",
+      "protein": 3
+    },
+    {
+      "id": "7gWzKjerOaEA7cN1Ez5e",
+      "baseUnit": "g",
+      "fat": 1.5,
+      "category": "odKQIAd2MYQ4kOnjAq76",
+      "calories": 45,
+      "customServings": [],
+      "name": "רוטב פטריות - ביתי",
+      "carbs": 5,
+      "protein": 1.5
+    },
+    {
+      "id": "hWc11L2HCrQ4bzCa8di9",
+      "fat": 91.6,
+      "calories": 624,
+      "customServings": [],
+      "name": "שמן",
+      "carbs": 0,
+      "category": "jbyqicYhzQ93gDypF5lF",
+      "protein": 0,
+      "baseUnit": "ml"
+    },
+    {
+      "id": "i2aIAltFsZTTxWGGVUch",
+      "baseUnit": "g",
+      "fat": 21,
+      "carbs": 27,
+      "protein": 7,
+      "standardMeals": [
+        "lunch"
+      ],
+      "category": "1vKa1AEZorZLho9ZVXMs",
+      "calories": 330,
+      "name": "שניצל תירס חדא",
+      "customServings": [
+        {
+          "name": "Unit",
+          "amount": 100
+        }
+      ]
+    }
+  ],
+  "recipes": [
+    {
+      "id": "KSvCcgNxp41YmLH1Q7PR",
+      "name": "חזה במרינדה",
+      "cookingAdjustment": {
+        "mode": "none",
+        "perMacro": {
+          "protein": "",
+          "carbs": "",
+          "fat": "",
+          "calories": ""
+        },
+        "overall": ""
+      },
+      "customServings": [],
+      "ingredients": [
+        {
+          "refId": "3FmifQBZWAYM5MZsukND",
+          "type": "product",
+          "unit": "base",
+          "amount": "1650"
+        },
+        {
+          "amount": "9",
+          "unit": "global:1",
+          "type": "product",
+          "refId": "hWc11L2HCrQ4bzCa8di9"
+        },
+        {
+          "amount": "3",
+          "type": "product",
+          "unit": "global:1",
+          "refId": "ZWjTKNQLyKWOhwXBgWL1"
+        }
+      ]
+    },
+    {
+      "id": "TZ3FL2HtAhK1zgXU2QTp",
+      "name": "טירמיסו קקאו",
+      "customServings": [],
+      "cookingAdjustment": {
+        "overall": "",
+        "mode": "none",
+        "perMacro": {
+          "protein": "",
+          "fat": "",
+          "carbs": "",
+          "calories": ""
+        }
+      },
+      "ingredients": []
+    }
+  ],
+  "families": []
+}
