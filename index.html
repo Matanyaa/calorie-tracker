@@ -371,6 +371,12 @@
         </div>
 
         <div class="card" style="margin-top:12px;">
+          <div class="spread"><h3>Products &amp; recipes backups</h3><button class="btn btn-small" id="createBackupBtn">+ Backup now</button></div>
+          <p class="muted" style="font-size:13px; margin-top:0;">Snapshots your products, recipes, and families as they are right now — kept here so you can bring back a single item, or undo a whole reorganizing pass, at any time. Also downloads a copy to your device.</p>
+          <div id="backupsList"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
           <h3>About</h3>
           <div class="version-row">
             <span id="appVersionLabel"></span>
@@ -403,7 +409,7 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.7.0';
+const APP_VERSION = 'v0.8.0';
 const APP_VERSION_DATE = '2026-09-12';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
@@ -729,6 +735,7 @@ const state = {
   units: [],
   categories: [],
   families: [],
+  backups: [],
   products: [],
   recipes: [],
   dayLogEntries: [],
@@ -910,6 +917,11 @@ async function initUserData(){
   unsubscribers.push(userCol('recipes').orderBy('name').onSnapshot(s=>{
     state.recipes = s.docs.map(d=>({id:d.id, ...d.data()}));
     renderRecipes();
+  }));
+
+  unsubscribers.push(userCol('backups').orderBy('createdAt','desc').onSnapshot(s=>{
+    state.backups = s.docs.map(d=>({id:d.id, ...d.data()}));
+    renderSettingsBackups();
   }));
 
   unsubscribers.push(userCol('weightEntries').orderBy('date','desc').onSnapshot(s=>{
@@ -2588,6 +2600,18 @@ document.getElementById('addCategoryBtn').addEventListener('click', async ()=>{
   await userCol('categories').add({name:'new category'});
 });
 
+function downloadJson(filename, obj){
+  const blob = new Blob([JSON.stringify(obj,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 document.getElementById('exportDataBtn').addEventListener('click', async ()=>{
   const [logsSnap] = await Promise.all([userCol('logEntries').get()]);
   const payload = {
@@ -2599,16 +2623,134 @@ document.getElementById('exportDataBtn').addEventListener('click', async ()=>{
     weightEntries: state.weightEntries,
     logEntries: logsSnap.docs.map(d=>({id:d.id, ...d.data()})),
   };
-  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `macro-tracker-backup-${todayStr()}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  downloadJson(`macro-tracker-backup-${todayStr()}.json`, payload);
 });
+
+/* =========================================================================
+   PRODUCTS & RECIPES BACKUPS — restorable from within the app itself, so a
+   single item (or an entire prior state) can be brought back without
+   re-uploading anything.
+   ========================================================================= */
+document.getElementById('createBackupBtn').addEventListener('click', async ()=>{
+  const snapshot = {
+    createdAt: new Date().toISOString(),
+    products: state.products,
+    recipes: state.recipes,
+    families: state.families,
+  };
+  await userCol('backups').add(snapshot);
+  downloadJson(`macro-tracker-products-recipes-backup-${todayStr()}.json`, snapshot);
+});
+
+function renderSettingsBackups(){
+  const box = document.getElementById('backupsList');
+  if(!state.backups.length){
+    box.innerHTML = `<div class="empty-note">No backups yet.</div>`;
+    return;
+  }
+  box.innerHTML = state.backups.map(b=>{
+    const when = new Date(b.createdAt).toLocaleString();
+    return `
+    <div class="list-item">
+      <div>
+        <div class="item-name">${when}</div>
+        <div class="item-sub">${(b.products||[]).length} products · ${(b.recipes||[]).length} recipes · ${(b.families||[]).length} families</div>
+      </div>
+      <div class="row-wrap" style="justify-content:flex-end;">
+        <button class="btn btn-small" data-backup-browse="${b.id}">Browse &amp; restore</button>
+        <button class="btn btn-small" data-backup-download="${b.id}">Download</button>
+        <button class="btn btn-small btn-danger" data-backup-revert="${b.id}">Restore all</button>
+        <button class="btn-icon" data-backup-delete="${b.id}">&#128465;</button>
+      </div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('[data-backup-browse]').forEach(el=> el.addEventListener('click', ()=> openBackupBrowseModal(el.dataset.backupBrowse)));
+  document.querySelectorAll('[data-backup-download]').forEach(el=> el.addEventListener('click', ()=>{
+    const b = state.backups.find(x=>x.id===el.dataset.backupDownload);
+    if(b) downloadJson(`macro-tracker-products-recipes-backup-${b.createdAt.slice(0,10)}.json`, b);
+  }));
+  document.querySelectorAll('[data-backup-revert]').forEach(el=> el.addEventListener('click', ()=> revertToBackup(el.dataset.backupRevert)));
+  document.querySelectorAll('[data-backup-delete]').forEach(el=> el.addEventListener('click', async ()=>{
+    if(!confirm('Delete this backup? This only removes the saved snapshot, not your current products/recipes.')) return;
+    await userCol('backups').doc(el.dataset.backupDelete).delete();
+  }));
+}
+
+function openBackupBrowseModal(backupId){
+  const backup = state.backups.find(b=>b.id===backupId);
+  if(!backup) return;
+
+  function listsHtml(q){
+    const prods = (backup.products||[]).filter(p=>p.name.toLowerCase().includes(q));
+    const recs = (backup.recipes||[]).filter(r=>r.name.toLowerCase().includes(q));
+    return `
+      <h3 style="font-size:13px; color:var(--text-dim); text-transform:uppercase;">Products (${prods.length})</h3>
+      <div class="card" style="margin-bottom:12px;">${prods.length ? prods.map(p=>`
+        <div class="list-item">
+          <div class="item-name">${escapeHtml(p.name)}${familyBadgeInBackupHtml(p, backup)}</div>
+          <button class="btn btn-small" data-restore-product="${p.id}">Restore</button>
+        </div>`).join('') : `<div class="empty-note">No matches.</div>`}</div>
+      <h3 style="font-size:13px; color:var(--text-dim); text-transform:uppercase;">Recipes (${recs.length})</h3>
+      <div class="card">${recs.length ? recs.map(r=>`
+        <div class="list-item">
+          <div class="item-name">${escapeHtml(r.name)}</div>
+          <button class="btn btn-small" data-restore-recipe="${r.id}">Restore</button>
+        </div>`).join('') : `<div class="empty-note">No matches.</div>`}</div>
+    `;
+  }
+  function wireLists(){
+    document.querySelectorAll('[data-restore-product]').forEach(b=> b.addEventListener('click', async ()=>{
+      const {id, ...data} = backup.products.find(p=>p.id===b.dataset.restoreProduct);
+      // Restoring under its original id repairs any recipe ingredient or log
+      // entry that still points to it, instead of creating a disconnected copy.
+      await userCol('products').doc(id).set(data);
+      alert(`Restored "${data.name}".`);
+    }));
+    document.querySelectorAll('[data-restore-recipe]').forEach(b=> b.addEventListener('click', async ()=>{
+      const {id, ...data} = backup.recipes.find(r=>r.id===b.dataset.restoreRecipe);
+      await userCol('recipes').doc(id).set(data);
+      alert(`Restored "${data.name}". If its ingredients were also deleted, restore them too for accurate macros.`);
+    }));
+  }
+  function renderLists(){
+    document.getElementById('backupBrowseLists').innerHTML = listsHtml(document.getElementById('backupBrowseSearch').value.trim().toLowerCase());
+    wireLists();
+  }
+
+  openModal(`
+    <div class="modal-header"><h2>Backup from ${new Date(backup.createdAt).toLocaleString()}</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
+    <input type="search" id="backupBrowseSearch" placeholder="Search this backup…" style="width:100%; margin-bottom:10px;" autofocus>
+    <div id="backupBrowseLists">${listsHtml('')}</div>
+  `);
+  document.getElementById('backupBrowseSearch').addEventListener('input', renderLists);
+  wireLists();
+}
+function familyBadgeInBackupHtml(p, backup){
+  if(!p.familyId) return '';
+  const f = (backup.families||[]).find(x=>x.id===p.familyId);
+  return f ? ` <span class="badge">${escapeHtml(f.name)}</span>` : '';
+}
+
+async function revertToBackup(backupId){
+  const backup = state.backups.find(b=>b.id===backupId);
+  if(!backup) return;
+  if(!confirm(`Replace ALL current products, recipes, and families with this backup from ${new Date(backup.createdAt).toLocaleString()}? Anything you've added or changed since won't be in the backup and will be removed. This can't be undone (unless you take a fresh backup first).`)) return;
+
+  const [prodSnap, recSnap, famSnap] = await Promise.all([
+    userCol('products').get(), userCol('recipes').get(), userCol('families').get(),
+  ]);
+  const batch = db.batch();
+  prodSnap.docs.forEach(d=> batch.delete(userCol('products').doc(d.id)));
+  recSnap.docs.forEach(d=> batch.delete(userCol('recipes').doc(d.id)));
+  famSnap.docs.forEach(d=> batch.delete(userCol('families').doc(d.id)));
+  (backup.products||[]).forEach(p=>{ const {id, ...data} = p; batch.set(userCol('products').doc(id), data); });
+  (backup.recipes||[]).forEach(r=>{ const {id, ...data} = r; batch.set(userCol('recipes').doc(id), data); });
+  (backup.families||[]).forEach(f=>{ const {id, ...data} = f; batch.set(userCol('families').doc(id), data); });
+  // Well within Firestore's 500-writes-per-batch cap at this app's personal
+  // scale — revisit with chunking if that ever stops being true.
+  await batch.commit();
+  alert('Restored. Your products, recipes, and families now match that backup.');
+}
 
 /* =========================================================================
    VERSION CHECK / UPDATE BANNER  (same pattern as split-builder)
