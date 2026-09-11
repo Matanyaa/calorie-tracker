@@ -213,9 +213,16 @@
 
       <!-- WEEK -->
       <section id="tab-week" class="tab-panel">
+        <div class="row-wrap" style="margin-bottom:8px;">
+          <div class="field" style="min-width:140px;"><label>Start</label><input type="date" id="weekStartInput"></div>
+          <div class="field" style="min-width:140px;"><label>End</label><input type="date" id="weekEndInput"></div>
+        </div>
         <div class="date-nav">
           <button class="btn btn-small" id="weekPrevBtn">&larr;</button>
-          <span class="lbl" id="weekRangeLabel"></span>
+          <div class="col" style="align-items:center; gap:2px;">
+            <span class="lbl" id="weekRangeLabel"></span>
+            <button class="btn-icon" id="weekResetBtn" style="font-size:11px; padding:0;">this week</button>
+          </div>
           <button class="btn btn-small" id="weekNextBtn">&rarr;</button>
         </div>
         <div class="card">
@@ -340,6 +347,15 @@
         </div>
 
         <div class="card" style="margin-top:12px;">
+          <div class="spread"><h3>Product families</h3><button class="btn btn-small" id="addFamilyBtn">+ Add family</button></div>
+          <p class="muted" style="font-size:12px; margin-top:0;">Group similar products (e.g. "Rice", or "Fish" &gt; "Salmon") so lookalikes don't clutter your lists. Optional — pick one on a product's edit screen.</p>
+          <table>
+            <thead><tr><th>Name</th><th>Parent family</th><th></th></tr></thead>
+            <tbody id="familiesTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
           <div class="spread"><h3>Categories</h3><button class="btn btn-small" id="addCategoryBtn">+ Add category</button></div>
           <p class="muted" style="font-size:12px; margin-top:0;">Used to tag estimated products (e.g. by where they came from).</p>
           <table>
@@ -387,8 +403,8 @@
 /* =========================================================================
    CONSTANTS
    ========================================================================= */
-const APP_VERSION = 'v0.6.0';
-const APP_VERSION_DATE = '2026-09-05';
+const APP_VERSION = 'v0.7.0';
+const APP_VERSION_DATE = '2026-09-12';
 document.getElementById('headerVersionBadge').textContent = APP_VERSION;
 document.getElementById('authVersionBadge').textContent = APP_VERSION;
 
@@ -580,6 +596,44 @@ function productsById(){ return Object.fromEntries(state.products.map(p=>[p.id,p
 function recipesById(){ return Object.fromEntries(state.recipes.map(r=>[r.id,r])); }
 function categoriesById(){ return Object.fromEntries(state.categories.map(c=>[c.id,c])); }
 
+/* ---- Product families (nested groups, e.g. Fish > Salmon) ---- */
+function familiesById(){ return Object.fromEntries(state.families.map(f=>[f.id,f])); }
+function familyChildren(parentId){
+  return state.families.filter(f => (f.parentId||null) === (parentId||null));
+}
+function familyPath(familyId){
+  const fMap = familiesById();
+  const parts = [];
+  let cur = familyId ? fMap[familyId] : null;
+  let guard = 0; // guards against an accidental parent cycle
+  while(cur && guard++ < 20){
+    parts.unshift(cur.name);
+    cur = cur.parentId ? fMap[cur.parentId] : null;
+  }
+  return parts.join(' > ');
+}
+function familyOptionsHtml(selectedId){
+  const lines = [];
+  function walk(parentId, depth){
+    familyChildren(parentId).sort((a,b)=>a.name.localeCompare(b.name)).forEach(f=>{
+      lines.push(`<option value="${f.id}" ${f.id===selectedId?'selected':''}>${'—'.repeat(depth)}${depth?' ':''}${escapeHtml(f.name)}</option>`);
+      walk(f.id, depth+1);
+    });
+  }
+  walk(null, 0);
+  return `<option value="" ${!selectedId?'selected':''}>— none —</option>` + lines.join('');
+}
+function familyBadgeHtml(p){
+  if(!p.familyId) return '';
+  const path = familyPath(p.familyId);
+  return path ? ` <span class="badge">${escapeHtml(path)}</span>` : '';
+}
+function productMatchesQuery(p, q){
+  if(!q) return true;
+  if(p.name.toLowerCase().includes(q)) return true;
+  return familyPath(p.familyId).toLowerCase().includes(q);
+}
+
 // Resolve a chosen quantity (amount + unitKey) against a product/recipe into
 // a base-unit amount (grams for recipes; grams or ml for products).
 function resolveQuantityToBaseAmount(item, isRecipe, amount, unitKey){
@@ -604,6 +658,68 @@ function baseUnitLabel(item, isRecipe){
   return isRecipe ? 'g' : item.baseUnit;
 }
 
+/* ---- Shared macro-entry widget: "per 100" vs "for a specific amount" ----
+   Several forms (product editor, quick-add, a combo's one-off item) let you
+   type macros either as per-100 values directly, or as the totals for
+   however much you have (e.g. a whole bag) plus that amount — the latter is
+   then converted to per-100 for storage. This is purely a data-entry
+   convenience: nothing about "mode" is ever persisted. */
+function macroEntryModeFieldHtml(prefix){
+  return `
+    <div class="field"><label>Values are</label>
+      <select id="${prefix}Mode">
+        <option value="per100">Per 100</option>
+        <option value="amount">For a specific amount (e.g. a whole bag)</option>
+      </select>
+    </div>
+    <div class="field hidden" id="${prefix}AmtWrap"><label>Amount</label><input type="number" step="any" id="${prefix}EnteredAmount" value="100"></div>
+  `;
+}
+function wireMacroEntryMode(prefix, opts){
+  opts = opts || {};
+  const modeEl = document.getElementById(prefix+'Mode');
+  const amtWrap = document.getElementById(prefix+'AmtWrap');
+  const amtInput = document.getElementById(prefix+'EnteredAmount');
+  modeEl.value = opts.initialMode || 'per100';
+  if(opts.initialAmount != null && opts.initialAmount !== '') amtInput.value = opts.initialAmount;
+  function updateLabels(){
+    const isAmt = modeEl.value === 'amount';
+    amtWrap.classList.toggle('hidden', !isAmt);
+    const suffix = isAmt ? ' (for this amount)' : ' (per 100)';
+    ['Cal','P','F','C'].forEach(k=>{
+      const lbl = document.getElementById(prefix+k+'Lbl');
+      if(lbl) lbl.textContent = lbl.dataset.base + suffix;
+    });
+  }
+  updateLabels();
+  modeEl.addEventListener('change', ()=>{ updateLabels(); if(opts.onChange) opts.onChange(); });
+  amtInput.addEventListener('input', ()=>{ if(opts.onChange) opts.onChange(); });
+  return updateLabels;
+}
+// blanksAsNull: pass true where a blank field should stay unknown (e.g. the
+// product editor's "needs values" partial-entry support) rather than be
+// treated as zero.
+function readMacroEntryValues(prefix, blanksAsNull){
+  const val = id => document.getElementById(id).value;
+  const num = v => v==='' ? (blanksAsNull ? null : 0) : Number(v);
+  return {
+    mode: document.getElementById(prefix+'Mode').value,
+    amount: Number(document.getElementById(prefix+'EnteredAmount').value)||0,
+    calories: num(val(prefix+'Cal')),
+    protein: num(val(prefix+'P')),
+    fat: num(val(prefix+'F')),
+    carbs: num(val(prefix+'C')),
+  };
+}
+function resolvePer100FromEntry(entry){
+  if(entry.mode === 'amount' && entry.amount > 0){
+    const scale = 100/entry.amount;
+    const sc = v => v==null ? null : v*scale;
+    return {calories:sc(entry.calories), protein:sc(entry.protein), fat:sc(entry.fat), carbs:sc(entry.carbs)};
+  }
+  return {calories:entry.calories, protein:entry.protein, fat:entry.fat, carbs:entry.carbs};
+}
+
 /* =========================================================================
    STATE
    ========================================================================= */
@@ -612,6 +728,7 @@ const state = {
   settings: null,
   units: [],
   categories: [],
+  families: [],
   products: [],
   recipes: [],
   dayLogEntries: [],
@@ -623,7 +740,8 @@ const state = {
   weekDayFlags: {},
   currentTab: 'today',
   currentDate: todayStr(),
-  weekAnchor: todayStr(),
+  weekStart: null,
+  weekEnd: null,
 };
 let unsubscribers = [];
 function clearListeners(){ unsubscribers.forEach(u=>{ try{u();}catch(e){} }); unsubscribers = []; }
@@ -739,6 +857,15 @@ async function initUserData(){
   }
   unsubscribers.push(settingsRef.onSnapshot(s=>{
     state.settings = s.data();
+    if(!state.weekStart){
+      // First load — seed the Week tab from the configured boundary. Once the
+      // user has touched the date pickers themselves, later settings changes
+      // shouldn't yank their chosen range out from under them.
+      const def = getWeekRange(todayStr(), state.settings.weekBoundary);
+      state.weekStart = def.start;
+      state.weekEnd = def.end;
+      subscribeWeekLog();
+    }
     renderSettings();
     renderToday();
     renderWeek();
@@ -766,6 +893,12 @@ async function initUserData(){
   unsubscribers.push(userCol('categories').orderBy('name').onSnapshot(s=>{
     state.categories = s.docs.map(d=>({id:d.id, ...d.data()}));
     renderSettingsCategories();
+    renderProducts();
+  }));
+
+  unsubscribers.push(userCol('families').orderBy('name').onSnapshot(s=>{
+    state.families = s.docs.map(d=>({id:d.id, ...d.data()}));
+    renderSettingsFamilies();
     renderProducts();
   }));
 
@@ -828,7 +961,8 @@ let weekFlagsUnsub = null;
 function subscribeWeekLog(){
   if(weekLogUnsub){ weekLogUnsub(); weekLogUnsub = null; }
   if(weekFlagsUnsub){ weekFlagsUnsub(); weekFlagsUnsub = null; }
-  const {start, end} = getWeekRange(state.weekAnchor, state.settings ? state.settings.weekBoundary : null);
+  if(!state.weekStart || !state.weekEnd) return; // not seeded from settings yet
+  const start = state.weekStart, end = state.weekEnd;
   weekLogUnsub = userCol('logEntries').where('date','>=',start).where('date','<=',end).onSnapshot(s=>{
     state.weekLogEntries = s.docs.map(d=>({id:d.id, ...d.data()}));
     renderWeek();
@@ -977,6 +1111,7 @@ function renderToday(){
 }
 
 function quantityLabel(e){
+  if(e.itemType === 'combo') return `${(e.components||[]).length} item${(e.components||[]).length===1?'':'s'}`;
   if(e.itemType === 'adhoc' && !e.quantity) return 'Quick add'; // entries logged before amount/unit were captured
   if(!e.quantity) return '100 ' + (e.itemType==='recipe'?'g':(e.baseUnit||'g'));
   const {amount, unit, unitLabel} = e.quantity;
@@ -1012,11 +1147,15 @@ function entryRowHtml(e){
   const warnHtml = entryNeedsValuesWarning(e) ? ` <span class="badge-warn" title="This product still needs its macro values filled in">needs values</span>` : '';
   const estimatedHtml = (e.quantity && e.quantity.estimated) ? ` <span class="badge" title="Amount was estimated, not weighed">~ estimated</span>` : '';
   const noteHtml = e.notes ? `<div class="entry-note">${escapeHtml(e.notes)}</div>` : '';
+  const componentsHtml = (e.itemType==='combo' && Array.isArray(e.components) && e.components.length)
+    ? `<div class="entry-note" style="font-style:normal;">${e.components.map(c=>`${escapeHtml(c.refName)} (${round1(c.baseAmount)} ${c.baseUnitLabel||'g'})`).join(' · ')}</div>`
+    : '';
   return `
     <div class="item-row">
       <div>
         <div class="item-name">${escapeHtml(e.refName)}${warnHtml}</div>
         <div class="item-sub">${qtyLabel}${estimatedHtml}</div>
+        ${componentsHtml}
         ${noteHtml}
       </div>
       <div class="row">
@@ -1052,6 +1191,7 @@ function openAddItemModal(meal){
     </div>
     <div class="search-results" id="itemSearchResults"></div>
     <button type="button" class="btn" id="quickAddBtn" style="width:100%; margin-top:10px;">+ Quick add a one-off item</button>
+    <button type="button" class="btn" id="comboAddBtn" style="width:100%; margin-top:8px;">+ Build a combo (multiple items)</button>
   `);
   const input = document.getElementById('itemSearchInput');
   const categoryFilter = document.getElementById('itemCategoryFilter');
@@ -1063,7 +1203,7 @@ function openAddItemModal(meal){
     // list; a real category id narrows products to that category only;
     // no filter (empty value) shows everything.
     const prods = cat === '__recipe' ? [] : state.products
-      .filter(p=>p.name.toLowerCase().includes(q))
+      .filter(p=> productMatchesQuery(p, q))
       .filter(p=> !cat || p.category === cat)
       .map(p=>({...p, itemType:'product'}));
     const recs = (!cat || cat === '__recipe') ? state.recipes.filter(r=>r.name.toLowerCase().includes(q)).map(r=>({...r, itemType:'recipe'})) : [];
@@ -1077,6 +1217,7 @@ function openAddItemModal(meal){
         ${escapeHtml(it.name)} <span class="mute2">(${it.itemType})</span>
         ${it.itemType==='product' && productNeedsValues(it) ? '<span class="badge-warn">needs values</span>' : ''}
         ${it.itemType==='product' ? categoryBadgeHtml(it) : ''}
+        ${it.itemType==='product' ? familyBadgeHtml(it) : ''}
       </div>
     `).join('') : `<div class="empty-note">No matches. Add a product or recipe first, or quick-add a one-off below.</div>`;
     results.querySelectorAll('.search-result').forEach(el=>{
@@ -1087,6 +1228,7 @@ function openAddItemModal(meal){
   categoryFilter.addEventListener('change', renderResults);
   renderResults();
   document.getElementById('quickAddBtn').addEventListener('click', ()=> openAdhocItemModal(meal));
+  document.getElementById('comboAddBtn').addEventListener('click', ()=> openComboModal(meal));
 }
 
 function openAdhocItemModal(meal){
@@ -1095,30 +1237,27 @@ function openAdhocItemModal(meal){
     <p class="muted" style="font-size:13px; margin-top:0;">Logged with its own values just this once — it won't be saved to your Products list.</p>
     <form id="adhocForm" class="col">
       <div class="field"><label>Name</label><input type="text" id="adhocName" required autofocus></div>
-      <div class="field"><label>Values are per 100</label>
+      <div class="field"><label>Base unit</label>
         <select id="adhocBaseUnit"><option value="g">grams (g)</option><option value="ml">milliliters (ml)</option></select>
       </div>
+      ${macroEntryModeFieldHtml('adhoc')}
       <div class="row-wrap">
-        <div class="field"><label>Calories</label><input type="number" step="any" id="adhocCal"></div>
-        <div class="field"><label>Protein (g)</label><input type="number" step="any" id="adhocP"></div>
-        <div class="field"><label>Fat (g)</label><input type="number" step="any" id="adhocF"></div>
-        <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="adhocC"></div>
+        <div class="field"><label id="adhocCalLbl" data-base="Calories">Calories</label><input type="number" step="any" id="adhocCal"></div>
+        <div class="field"><label id="adhocPLbl" data-base="Protein (g)">Protein (g)</label><input type="number" step="any" id="adhocP"></div>
+        <div class="field"><label id="adhocFLbl" data-base="Fat (g)">Fat (g)</label><input type="number" step="any" id="adhocF"></div>
+        <div class="field"><label id="adhocCLbl" data-base="Carbs (g)">Carbs (g)</label><input type="number" step="any" id="adhocC"></div>
       </div>
       <div class="field"><label>Amount actually consumed</label><input type="number" step="any" id="adhocAmount" value="100"></div>
       <label class="row" style="gap:6px; font-size:13px;"><input type="checkbox" id="adhocEstimated"> Amount is an estimate (not weighed)</label>
       <div class="muted" id="adhocPreview" style="font-size:13px;"></div>
+      <label class="row" style="gap:6px; font-size:13px;"><input type="checkbox" id="adhocSaveAsProduct"> Also save this as a product for future use</label>
       <div class="field"><label>Notes (optional)</label><textarea id="adhocNotes" rows="2" style="width:100%; resize:vertical;" placeholder="e.g. estimate — check the real label later"></textarea></div>
       <button type="submit" class="btn btn-primary" style="margin-top:6px;">Add to ${MEAL_LABELS[meal]}</button>
     </form>
   `);
 
   function per100FromInputs(){
-    return {
-      calories: Number(document.getElementById('adhocCal').value)||0,
-      protein: Number(document.getElementById('adhocP').value)||0,
-      fat: Number(document.getElementById('adhocF').value)||0,
-      carbs: Number(document.getElementById('adhocC').value)||0,
-    };
+    return resolvePer100FromEntry(readMacroEntryValues('adhoc', false));
   }
   function updatePreview(){
     const amount = Number(document.getElementById('adhocAmount').value)||0;
@@ -1126,6 +1265,7 @@ function openAdhocItemModal(meal){
     document.getElementById('adhocPreview').textContent =
       `= ${fmtCal(macros.calories)} cal · P${fmtMacro(macros.protein)} F${fmtMacro(macros.fat)} C${fmtMacro(macros.carbs)}`;
   }
+  wireMacroEntryMode('adhoc', {onChange: updatePreview});
   ['adhocCal','adhocP','adhocF','adhocC','adhocAmount'].forEach(id=>{
     document.getElementById(id).addEventListener('input', updatePreview);
   });
@@ -1138,7 +1278,15 @@ function openAdhocItemModal(meal){
     const notes = document.getElementById('adhocNotes').value.trim();
     const baseUnit = document.getElementById('adhocBaseUnit').value;
     const amount = Number(document.getElementById('adhocAmount').value)||0;
-    const macros = scaleMacros(per100FromInputs(), amount/100);
+    const per100 = per100FromInputs();
+    const macros = scaleMacros(per100, amount/100);
+    if(document.getElementById('adhocSaveAsProduct').checked){
+      await userCol('products').add({
+        name, baseUnit,
+        calories: per100.calories, protein: per100.protein, fat: per100.fat, carbs: per100.carbs,
+        customServings: [], category: null, standardMeals: [],
+      });
+    }
     await userCol('logEntries').add({
       date: state.currentDate,
       meal,
@@ -1165,6 +1313,286 @@ function unitOptionsHtml(item, isRecipe){
     opts += `<option value="global:${i}">${escapeHtml(u.name)}</option>`;
   });
   return opts;
+}
+
+/* =========================================================================
+   COMBO — log several items as one meal entry (e.g. falafel + pita + tahini)
+   ========================================================================= */
+function comboComponentMacros(c){
+  if(c.kind === 'adhoc'){
+    const entry = {mode:c.mode, amount:Number(c.enteredAmount)||0, calories:Number(c.calories)||0, protein:Number(c.protein)||0, fat:Number(c.fat)||0, carbs:Number(c.carbs)||0};
+    const per100 = resolvePer100FromEntry(entry);
+    return scaleMacros(per100, (Number(c.usedAmount)||0)/100);
+  }
+  if(!c.refId) return emptyMacros();
+  const isRecipe = c.type === 'recipe';
+  const refItem = isRecipe ? recipesById()[c.refId] : productsById()[c.refId];
+  if(!refItem) return emptyMacros();
+  const per100 = isRecipe ? recipeMacrosPer100(refItem, productsById(), recipesById()) : productMacrosPer100(refItem);
+  const baseAmt = resolveQuantityToBaseAmount(refItem, isRecipe, c.amount, c.unit||'base');
+  return scaleMacros(per100, baseAmt/100);
+}
+
+function openComboModal(meal){
+  let components = [];
+  let comboName = '';
+
+  function comboRowHtml(c, i){
+    if(c.kind === 'adhoc'){
+      const m = comboComponentMacros(c);
+      return `
+      <div class="card" data-combo-row="${i}" style="padding:10px; margin-bottom:8px;">
+        <div class="spread">
+          <button type="button" class="btn-icon" data-combo-toggle="${i}">${c.expanded ? '▾' : '▸'}</button>
+          <div class="combo-row-summary" style="flex:1; font-size:13px;">${escapeHtml(c.name||'One-off item')} — ${fmtCal(m.calories)} cal</div>
+          <button type="button" class="btn-icon" data-combo-remove="${i}">&#128465;</button>
+        </div>
+        <div class="${c.expanded?'':'hidden'}" id="comboAdhocBody${i}" style="margin-top:8px;">
+          <div class="col">
+            <div class="field"><label>Name</label><input type="text" data-combo-adhoc-name="${i}" value="${escapeHtml(c.name)}"></div>
+            <div class="field"><label>Base unit</label>
+              <select data-combo-adhoc-baseunit="${i}">
+                <option value="g" ${c.baseUnit==='g'?'selected':''}>grams (g)</option>
+                <option value="ml" ${c.baseUnit==='ml'?'selected':''}>milliliters (ml)</option>
+              </select>
+            </div>
+            ${macroEntryModeFieldHtml('co'+i)}
+            <div class="row-wrap">
+              <div class="field"><label id="co${i}CalLbl" data-base="Calories">Calories</label><input type="number" step="any" id="co${i}Cal" value="${c.calories ?? ''}"></div>
+              <div class="field"><label id="co${i}PLbl" data-base="Protein (g)">Protein (g)</label><input type="number" step="any" id="co${i}P" value="${c.protein ?? ''}"></div>
+              <div class="field"><label id="co${i}FLbl" data-base="Fat (g)">Fat (g)</label><input type="number" step="any" id="co${i}F" value="${c.fat ?? ''}"></div>
+              <div class="field"><label id="co${i}CLbl" data-base="Carbs (g)">Carbs (g)</label><input type="number" step="any" id="co${i}C" value="${c.carbs ?? ''}"></div>
+            </div>
+            <div class="field"><label>Amount used in this combo</label><input type="number" step="any" data-combo-adhoc-used="${i}" value="${c.usedAmount ?? ''}"></div>
+            <label class="row" style="gap:6px; font-size:13px;"><input type="checkbox" data-combo-adhoc-save="${i}" ${c.saveAsProduct?'checked':''}> Also save this as a product for future use</label>
+          </div>
+        </div>
+      </div>`;
+    }
+    const refItem = c.refId ? (c.type==='product' ? productsById()[c.refId] : recipesById()[c.refId]) : null;
+    const unitHtml = refItem
+      ? `<select data-combo-unit="${i}" style="width:118px;">${unitOptionsHtml(refItem, c.type==='recipe')}</select>`
+      : `<select data-combo-unit="${i}" style="width:118px;" disabled><option>unit</option></select>`;
+    return `
+      <div class="row-wrap" data-combo-row="${i}" style="margin-bottom:6px; position:relative;">
+        <input type="text" placeholder="Search product/recipe…" value="${escapeHtml(refItem?refItem.name:'')}" data-combo-search="${i}" style="flex:2;" autocomplete="off">
+        <input type="number" placeholder="amount" value="${c.amount||''}" data-combo-amount="${i}" style="width:70px;">
+        ${unitHtml}
+        <button type="button" class="btn-icon" data-combo-remove="${i}">&#128465;</button>
+        <div class="search-results hidden" data-combo-results="${i}" style="position:absolute; z-index:5; background:var(--panel2); width:60%; top:100%;"></div>
+      </div>
+    `;
+  }
+
+  function syncComboRow(i){
+    const c = components[i];
+    if(!c) return;
+    if(c.kind === 'adhoc'){
+      const nameInput = document.querySelector(`[data-combo-adhoc-name="${i}"]`);
+      if(!nameInput) return;
+      c.name = nameInput.value;
+      c.baseUnit = document.querySelector(`[data-combo-adhoc-baseunit="${i}"]`).value;
+      c.mode = document.getElementById('co'+i+'Mode').value;
+      c.enteredAmount = document.getElementById('co'+i+'EnteredAmount').value;
+      c.calories = document.getElementById('co'+i+'Cal').value;
+      c.protein = document.getElementById('co'+i+'P').value;
+      c.fat = document.getElementById('co'+i+'F').value;
+      c.carbs = document.getElementById('co'+i+'C').value;
+      c.usedAmount = document.querySelector(`[data-combo-adhoc-used="${i}"]`).value;
+      c.saveAsProduct = document.querySelector(`[data-combo-adhoc-save="${i}"]`).checked;
+    } else {
+      const amtInput = document.querySelector(`[data-combo-amount="${i}"]`);
+      if(!amtInput) return;
+      c.amount = amtInput.value;
+      const unitEl = document.querySelector(`[data-combo-unit="${i}"]`);
+      if(unitEl && !unitEl.disabled) c.unit = unitEl.value;
+    }
+  }
+  function syncComboFromDom(){
+    const nameEl = document.getElementById('comboName');
+    if(nameEl) comboName = nameEl.value;
+    components.forEach((c,i)=> syncComboRow(i));
+  }
+  function refreshComboRowSummary(i){
+    const c = components[i];
+    if(!c || c.kind !== 'adhoc') return;
+    const m = comboComponentMacros(c);
+    const row = document.querySelector(`[data-combo-row="${i}"]`);
+    const summaryEl = row && row.querySelector('.combo-row-summary');
+    if(summaryEl) summaryEl.textContent = `${c.name || 'One-off item'} — ${fmtCal(m.calories)} cal`;
+  }
+  function comboTotalMacros(){
+    return components.reduce((acc,c)=> addMacros(acc, comboComponentMacros(c)), emptyMacros());
+  }
+  function refreshComboPreview(){
+    const total = comboTotalMacros();
+    const el = document.getElementById('comboPreview');
+    if(el) el.textContent = `Total: ${fmtCal(total.calories)} cal · P${fmtMacro(total.protein)} F${fmtMacro(total.fat)} C${fmtMacro(total.carbs)}`;
+  }
+
+  function wireComboRows(){
+    document.querySelectorAll('[data-combo-remove]').forEach(b=> b.addEventListener('click', ()=>{
+      syncComboFromDom();
+      components.splice(Number(b.dataset.comboRemove),1);
+      render();
+    }));
+    document.querySelectorAll('[data-combo-toggle]').forEach(b=> b.addEventListener('click', ()=>{
+      const i = Number(b.dataset.comboToggle);
+      components[i].expanded = !components[i].expanded;
+      document.getElementById('comboAdhocBody'+i).classList.toggle('hidden', !components[i].expanded);
+      b.textContent = components[i].expanded ? '▾' : '▸';
+    }));
+    document.querySelectorAll('[data-combo-row]').forEach(row=>{
+      const i = Number(row.dataset.comboRow);
+      const c = components[i];
+      if(c.kind === 'adhoc') return;
+      const searchInput = row.querySelector(`[data-combo-search="${i}"]`);
+      const resultsBox = row.querySelector(`[data-combo-results="${i}"]`);
+      const unitSelect = row.querySelector(`[data-combo-unit="${i}"]`);
+      if(!unitSelect.disabled) unitSelect.value = c.unit || 'base';
+      searchInput.addEventListener('input', ()=>{
+        const q = searchInput.value.trim().toLowerCase();
+        const prods = state.products.filter(p=> productMatchesQuery(p, q)).map(p=>({id:p.id,name:p.name,type:'product'}));
+        const recs = state.recipes.filter(rc=>rc.name.toLowerCase().includes(q)).map(rc=>({id:rc.id,name:rc.name,type:'recipe'}));
+        const all = [...prods, ...recs];
+        resultsBox.innerHTML = all.map(it=>`<div class="search-result" data-pick-type="${it.type}" data-pick-id="${it.id}">${escapeHtml(it.name)} <span class="mute2">(${it.type})</span></div>`).join('');
+        resultsBox.classList.toggle('hidden', all.length===0 || q==='');
+        resultsBox.querySelectorAll('[data-pick-id]').forEach(el=>{
+          el.addEventListener('click', ()=>{
+            c.type = el.dataset.pickType;
+            c.refId = el.dataset.pickId;
+            c.unit = 'base';
+            searchInput.value = el.textContent.trim();
+            resultsBox.classList.add('hidden');
+            const pickedItem = el.dataset.pickType==='product' ? productsById()[el.dataset.pickId] : recipesById()[el.dataset.pickId];
+            unitSelect.innerHTML = unitOptionsHtml(pickedItem, el.dataset.pickType==='recipe');
+            unitSelect.disabled = false;
+            unitSelect.value = 'base';
+            refreshComboPreview();
+          });
+        });
+      });
+      row.querySelector(`[data-combo-amount="${i}"]`).addEventListener('input', ()=>{
+        c.amount = row.querySelector(`[data-combo-amount="${i}"]`).value;
+        refreshComboPreview();
+      });
+      unitSelect.addEventListener('change', ()=>{
+        c.unit = unitSelect.value;
+        refreshComboPreview();
+      });
+    });
+    components.forEach((c,i)=>{
+      if(c.kind !== 'adhoc') return;
+      wireMacroEntryMode('co'+i, {initialMode:c.mode, initialAmount:c.enteredAmount, onChange: ()=>{ syncComboRow(i); refreshComboRowSummary(i); refreshComboPreview(); }});
+      ['Cal','P','F','C'].forEach(k=> document.getElementById('co'+i+k).addEventListener('input', ()=>{ syncComboRow(i); refreshComboRowSummary(i); refreshComboPreview(); }));
+      document.querySelector(`[data-combo-adhoc-name="${i}"]`).addEventListener('input', ()=>{ syncComboRow(i); refreshComboRowSummary(i); });
+      document.querySelector(`[data-combo-adhoc-baseunit="${i}"]`).addEventListener('change', ()=> syncComboRow(i));
+      document.querySelector(`[data-combo-adhoc-used="${i}"]`).addEventListener('input', ()=>{ syncComboRow(i); refreshComboRowSummary(i); refreshComboPreview(); });
+      document.querySelector(`[data-combo-adhoc-save="${i}"]`).addEventListener('change', ()=> syncComboRow(i));
+    });
+    refreshComboPreview();
+  }
+
+  function render(){
+    openModal(`
+      <div class="modal-header"><h2>New combo</h2><button class="btn-icon" onclick="closeModal()">&times;</button></div>
+      <p class="muted" style="font-size:13px; margin-top:0;">Build a meal from several items at once (e.g. falafel + pita + tahini) — logged as one entry.</p>
+      <form id="comboForm" class="col">
+        <div class="field"><label>Combo name</label><input type="text" id="comboName" value="${escapeHtml(comboName)}" placeholder="e.g. Falafel in pita" required></div>
+        <div class="spread" style="margin-top:6px;"><label style="font-size:12px; color:var(--text-dim);">Items</label>
+          <div class="row" style="gap:6px;">
+            <button type="button" class="btn btn-small" id="comboAddRefBtn">+ Add item</button>
+            <button type="button" class="btn btn-small" id="comboAddAdhocBtn">+ One-off item</button>
+          </div>
+        </div>
+        <div id="comboList" style="position:relative;">${components.length ? components.map(comboRowHtml).join('') : '<div class="empty-note">No items yet.</div>'}</div>
+        <div class="muted" id="comboPreview" style="margin-top:8px; font-size:13px;"></div>
+        <label class="row" style="gap:6px; font-size:13px; margin-top:6px;"><input type="checkbox" id="comboSaveAsRecipe"> Also save this combo as a recipe</label>
+        <button type="submit" class="btn btn-primary" style="margin-top:8px;">Add to ${MEAL_LABELS[meal]}</button>
+      </form>
+    `);
+    wireComboRows();
+    document.getElementById('comboAddRefBtn').addEventListener('click', ()=>{
+      syncComboFromDom();
+      components.push({kind:'ref', type:'product', refId:'', amount:'', unit:'base'});
+      render();
+    });
+    document.getElementById('comboAddAdhocBtn').addEventListener('click', ()=>{
+      syncComboFromDom();
+      components.push({kind:'adhoc', name:'', baseUnit:'g', mode:'per100', enteredAmount:'100', calories:'', protein:'', fat:'', carbs:'', usedAmount:'100', saveAsProduct:false, expanded:true});
+      render();
+    });
+    document.getElementById('comboForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      syncComboFromDom();
+      await submitCombo();
+    });
+  }
+
+  async function submitCombo(){
+    if(!components.length){ alert('Add at least one item to the combo.'); return; }
+    const wantRecipe = document.getElementById('comboSaveAsRecipe').checked;
+    const finalComponents = [];
+    const recipeIngredients = [];
+    for(const c of components){
+      if(c.kind === 'ref'){
+        if(!c.refId || !c.amount) continue; // skip incomplete rows, same tolerance the recipe editor allows
+        const isRecipe = c.type === 'recipe';
+        const refItem = isRecipe ? recipesById()[c.refId] : productsById()[c.refId];
+        if(!refItem) continue;
+        const per100 = isRecipe ? recipeMacrosPer100(refItem, productsById(), recipesById()) : productMacrosPer100(refItem);
+        const baseAmt = resolveQuantityToBaseAmount(refItem, isRecipe, c.amount, c.unit||'base');
+        const macros = scaleMacros(per100, baseAmt/100);
+        finalComponents.push({type:c.type, refId:c.refId, refName:refItem.name, amount:Number(c.amount)||0, unit:c.unit||'base', baseAmount:baseAmt, baseUnitLabel: baseUnitLabel(refItem, isRecipe), macros});
+        recipeIngredients.push({type:c.type, refId:c.refId, amount:baseAmt, unit:'base'});
+      } else {
+        const entry = {mode:c.mode, amount:Number(c.enteredAmount)||0, calories:Number(c.calories)||0, protein:Number(c.protein)||0, fat:Number(c.fat)||0, carbs:Number(c.carbs)||0};
+        const per100 = resolvePer100FromEntry(entry);
+        const used = Number(c.usedAmount)||0;
+        const macros = scaleMacros(per100, used/100);
+        const itemName = c.name.trim() || 'Unnamed item';
+        let refId = null;
+        // A saved recipe can only reference real products, so any one-off
+        // component becomes a product either way once the whole combo is
+        // being kept as a recipe — not just when its own checkbox is ticked.
+        if(c.saveAsProduct || wantRecipe){
+          const doc = await userCol('products').add({
+            name: itemName, baseUnit: c.baseUnit,
+            calories: per100.calories, protein: per100.protein, fat: per100.fat, carbs: per100.carbs,
+            customServings: [], category: null, standardMeals: [],
+          });
+          refId = doc.id;
+        }
+        finalComponents.push({type: refId ? 'product' : 'adhoc', refId, refName: itemName, amount: used, unit:'base', baseAmount: used, baseUnitLabel: c.baseUnit, macros});
+        if(refId) recipeIngredients.push({type:'product', refId, amount: used, unit:'base'});
+      }
+    }
+    if(!finalComponents.length){ alert('Add at least one complete item to the combo.'); return; }
+    const totalMacros = finalComponents.reduce((acc,fc)=> addMacros(acc, fc.macros), emptyMacros());
+    const name = document.getElementById('comboName').value.trim() || 'Combo';
+
+    if(wantRecipe){
+      await userCol('recipes').add({
+        name,
+        ingredients: recipeIngredients,
+        cookingAdjustment: {mode:'none', overall:'', perMacro:{calories:'',protein:'',fat:'',carbs:''}},
+        customServings: [],
+      });
+    }
+
+    await userCol('logEntries').add({
+      date: state.currentDate,
+      meal,
+      itemType: 'combo',
+      refId: null,
+      refName: name,
+      components: finalComponents,
+      macros: totalMacros,
+    });
+    closeModal();
+  }
+
+  render();
 }
 
 function openQuantityModal(meal, refId, itemType){
@@ -1224,7 +1652,8 @@ function openQuantityModal(meal, refId, itemType){
 function openEditEntryModal(entryId){
   const entry = state.dayLogEntries.find(e=>e.id===entryId);
   if(!entry) return;
-  const isAdhoc = entry.itemType === 'adhoc';
+  const isCombo = entry.itemType === 'combo';
+  const isAdhoc = entry.itemType === 'adhoc' || isCombo;
   const isRecipe = entry.itemType === 'recipe';
   const item = isAdhoc ? null : (isRecipe ? recipesById()[entry.refId] : productsById()[entry.refId]);
   const per100 = item ? (isRecipe ? recipeMacrosPer100(item, productsById(), recipesById()) : productMacrosPer100(item)) : null;
@@ -1246,7 +1675,7 @@ function openEditEntryModal(entryId){
       </div>
       <label class="row" style="gap:6px; font-size:13px; margin-top:6px;"><input type="checkbox" id="qtyEstimated" ${entry.quantity && entry.quantity.estimated ? 'checked' : ''}> Amount is an estimate (not weighed)</label>
       <div class="muted" id="qtyPreview" style="margin:10px 0; font-size:13px;"></div>
-    ` : `<p class="muted">${isAdhoc ? 'A one-off item — edit its values directly below.' : 'The original product/recipe was deleted — edit the values directly below.'}</p>
+    ` : `<p class="muted">${isCombo ? "This combo's totals — edit the combined values directly below (the item-by-item breakdown can't be edited after logging; delete and re-log to change it)." : (isAdhoc ? 'A one-off item — edit its values directly below.' : 'The original product/recipe was deleted — edit the values directly below.')}</p>
       <div class="field"><label>Name</label><input type="text" id="editName" value="${escapeHtml(entry.refName)}" required></div>
       <div class="field"><label>Values are per 100</label>
         <select id="editBaseUnit"><option value="g" ${noItemBaseUnit==='g'?'selected':''}>grams (g)</option><option value="ml" ${noItemBaseUnit==='ml'?'selected':''}>milliliters (ml)</option></select>
@@ -1341,17 +1770,49 @@ function openEditEntryModal(entryId){
 /* =========================================================================
    WEEK TAB
    ========================================================================= */
+function setWeekRange(start, end){
+  state.weekStart = start;
+  state.weekEnd = end;
+  subscribeWeekLog();
+  renderWeek();
+}
 document.getElementById('weekPrevBtn').addEventListener('click', ()=>{
-  state.weekAnchor = addDays(state.weekAnchor, -weekLengthDays(...Object.values(getWeekRange(state.weekAnchor, state.settings?.weekBoundary))));
-  subscribeWeekLog(); renderWeek();
+  const len = weekLengthDays(state.weekStart, state.weekEnd);
+  setWeekRange(addDays(state.weekStart, -len), addDays(state.weekEnd, -len));
 });
 document.getElementById('weekNextBtn').addEventListener('click', ()=>{
-  state.weekAnchor = addDays(state.weekAnchor, weekLengthDays(...Object.values(getWeekRange(state.weekAnchor, state.settings?.weekBoundary))));
-  subscribeWeekLog(); renderWeek();
+  const len = weekLengthDays(state.weekStart, state.weekEnd);
+  setWeekRange(addDays(state.weekStart, len), addDays(state.weekEnd, len));
+});
+document.getElementById('weekResetBtn').addEventListener('click', ()=>{
+  const def = getWeekRange(todayStr(), state.settings ? state.settings.weekBoundary : null);
+  setWeekRange(def.start, def.end);
+});
+document.getElementById('weekStartInput').addEventListener('change', (e)=>{
+  const newStart = e.target.value;
+  if(!newStart) return;
+  // Keep the range the same length, just shifted, so "pick a start date"
+  // reads as "show the week starting here" rather than silently also
+  // changing how many days are shown.
+  const len = weekLengthDays(state.weekStart, state.weekEnd);
+  let newEnd = addDays(newStart, len-1);
+  if(newEnd < newStart) newEnd = newStart;
+  setWeekRange(newStart, newEnd);
+});
+document.getElementById('weekEndInput').addEventListener('change', (e)=>{
+  const newEnd = e.target.value;
+  if(!newEnd) return;
+  // Editing End directly is how you get an arbitrary-length range instead
+  // of a fixed 7 days.
+  const start = newEnd < state.weekStart ? newEnd : state.weekStart;
+  setWeekRange(start, newEnd);
 });
 
 function renderWeek(){
-  const {start, end} = getWeekRange(state.weekAnchor, state.settings ? state.settings.weekBoundary : null);
+  if(!state.weekStart || !state.weekEnd) return;
+  const start = state.weekStart, end = state.weekEnd;
+  document.getElementById('weekStartInput').value = start;
+  document.getElementById('weekEndInput').value = end;
   document.getElementById('weekRangeLabel').textContent = `${formatDateLabel(start)} – ${formatDateLabel(end)}`;
 
   const dayTarget = getActiveTarget();
@@ -1451,13 +1912,11 @@ function categoryBadgeHtml(p){
   return cat ? ` <span class="badge">${escapeHtml(cat.name)}</span>` : '';
 }
 
-function renderProducts(){
-  const q = document.getElementById('productSearch').value.trim().toLowerCase();
-  const list = state.products.filter(p=>p.name.toLowerCase().includes(q));
-  document.getElementById('productsList').innerHTML = list.length ? list.map(p=>`
+function productItemHtml(p){
+  return `
     <div class="list-item">
       <div>
-        <div class="item-name">${escapeHtml(p.name)}${productNeedsValues(p) ? ' <span class="badge-warn">needs values</span>' : ''}${categoryBadgeHtml(p)}</div>
+        <div class="item-name">${escapeHtml(p.name)}${productNeedsValues(p) ? ' <span class="badge-warn">needs values</span>' : ''}${categoryBadgeHtml(p)}${familyBadgeHtml(p)}</div>
         <div class="item-sub">per 100${p.baseUnit}: ${fmtCalOrDash(p.calories)} cal · P${fmtMacroOrDash(p.protein)} F${fmtMacroOrDash(p.fat)} C${fmtMacroOrDash(p.carbs)}</div>
       </div>
       <div class="row">
@@ -1465,7 +1924,40 @@ function renderProducts(){
         <button class="btn-icon" data-delete-product="${p.id}">&#128465;</button>
       </div>
     </div>
-  `).join('') : `<div class="empty-note">No products yet.</div>`;
+  `;
+}
+function renderProductFamilyGroups(list){
+  const byFamily = {};
+  const ungrouped = [];
+  list.forEach(p=>{
+    if(p.familyId) (byFamily[p.familyId] = byFamily[p.familyId]||[]).push(p);
+    else ungrouped.push(p);
+  });
+  function renderFamilyNode(f){
+    const own = (byFamily[f.id]||[]).sort((a,b)=>a.name.localeCompare(b.name));
+    const childHtml = familyChildren(f.id).sort((a,b)=>a.name.localeCompare(b.name)).map(renderFamilyNode).join('');
+    const inner = own.map(productItemHtml).join('') + childHtml;
+    if(!inner) return ''; // nothing under this family (anywhere in its subtree) — skip it entirely
+    return `<details style="margin:4px 0;"><summary style="cursor:pointer; font-weight:600; padding:6px 0;">${escapeHtml(f.name)} <span class="mute2">(${own.length})</span></summary><div style="padding-left:12px;">${inner}</div></details>`;
+  }
+  const groupedHtml = familyChildren(null).sort((a,b)=>a.name.localeCompare(b.name)).map(renderFamilyNode).join('');
+  const ungroupedHtml = ungrouped.sort((a,b)=>a.name.localeCompare(b.name)).map(productItemHtml).join('');
+  return groupedHtml + ungroupedHtml;
+}
+function renderProducts(){
+  const q = document.getElementById('productSearch').value.trim().toLowerCase();
+  const list = state.products.filter(p=> productMatchesQuery(p, q));
+  let html;
+  if(!list.length){
+    html = `<div class="empty-note">No products yet.</div>`;
+  } else if(q){
+    // Searching — a flat list (with the family shown as a badge) is easier
+    // to scan than a tree you'd have to expand to find a match in.
+    html = list.map(productItemHtml).join('');
+  } else {
+    html = renderProductFamilyGroups(list);
+  }
+  document.getElementById('productsList').innerHTML = html;
 
   document.querySelectorAll('[data-edit-product]').forEach(b=> b.addEventListener('click', ()=> openProductForm(b.dataset.editProduct)));
   document.querySelectorAll('[data-delete-product]').forEach(b=> b.addEventListener('click', async ()=>{
@@ -1486,7 +1978,10 @@ function customServingsRowsHtml(servings, unitLabel){
 
 function openProductForm(id){
   const original = id ? state.products.find(x=>x.id===id) : null;
-  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[], category:null, standardMeals:[]};
+  const p = original ? JSON.parse(JSON.stringify(original)) : {name:'', baseUnit:'g', calories:'', protein:'', fat:'', carbs:'', customServings:[], category:null, familyId:null, standardMeals:[]};
+  // Data-entry-only, never persisted — see resolvePer100FromEntry.
+  p._macroMode = p._macroMode || 'per100';
+  p._macroAmount = p._macroAmount || '';
   let servings = JSON.parse(JSON.stringify(p.customServings||[]));
 
   function syncMainFieldsFromDom(){
@@ -1498,8 +1993,12 @@ function openProductForm(id){
     p.protein = document.getElementById('pfP').value;
     p.fat = document.getElementById('pfF').value;
     p.carbs = document.getElementById('pfC').value;
+    p._macroMode = document.getElementById('pfMode').value;
+    p._macroAmount = document.getElementById('pfEnteredAmount').value;
     const catEl = document.getElementById('pfCategory');
     if(catEl) p.category = catEl.value;
+    const famEl = document.getElementById('pfFamily');
+    if(famEl) p.familyId = famEl.value || null;
     p.standardMeals = MEAL_TYPES.filter(m=> document.getElementById('pfMeal_'+m)?.checked);
   }
 
@@ -1520,15 +2019,20 @@ function openProductForm(id){
         <div class="field"><label>Measured per 100</label>
           <select id="pfBaseUnit"><option value="g" ${p.baseUnit==='g'?'selected':''}>grams (g)</option><option value="ml" ${p.baseUnit==='ml'?'selected':''}>milliliters (ml)</option></select>
         </div>
+        ${macroEntryModeFieldHtml('pf')}
         <div class="row-wrap">
-          <div class="field"><label>Calories</label><input type="number" step="any" id="pfCal" value="${p.calories ?? ''}"></div>
-          <div class="field"><label>Protein (g)</label><input type="number" step="any" id="pfP" value="${p.protein ?? ''}"></div>
-          <div class="field"><label>Fat (g)</label><input type="number" step="any" id="pfF" value="${p.fat ?? ''}"></div>
-          <div class="field"><label>Carbs (g)</label><input type="number" step="any" id="pfC" value="${p.carbs ?? ''}"></div>
+          <div class="field"><label id="pfCalLbl" data-base="Calories">Calories</label><input type="number" step="any" id="pfCal" value="${p.calories ?? ''}"></div>
+          <div class="field"><label id="pfPLbl" data-base="Protein (g)">Protein (g)</label><input type="number" step="any" id="pfP" value="${p.protein ?? ''}"></div>
+          <div class="field"><label id="pfFLbl" data-base="Fat (g)">Fat (g)</label><input type="number" step="any" id="pfF" value="${p.fat ?? ''}"></div>
+          <div class="field"><label id="pfCLbl" data-base="Carbs (g)">Carbs (g)</label><input type="number" step="any" id="pfC" value="${p.carbs ?? ''}"></div>
         </div>
+        <div class="muted" id="pfPer100Preview" style="font-size:12px; margin-top:-4px;"></div>
         ${productNeedsValues(p) ? `<div class="muted" style="font-size:12px; margin-top:-4px;">Leave any of these blank to fill in later — shown as <span class="badge-warn">needs values</span> until then.</div>` : ''}
         <div class="field"><label>Category</label>
           <select id="pfCategory">${categoryOptionsHtml(p.category)}</select>
+        </div>
+        <div class="field"><label>Family <span class="mute2">(manage in Settings)</span></label>
+          <select id="pfFamily">${familyOptionsHtml(p.familyId)}</select>
         </div>
         <div class="field"><label>Usually eaten at (used to sort it to the top when logging)</label>
           <div class="row-wrap">
@@ -1540,6 +2044,16 @@ function openProductForm(id){
         <button type="submit" class="btn btn-primary" style="margin-top:8px;">Save</button>
       </form>
     `);
+    function updatePfPreview(){
+      const entry = readMacroEntryValues('pf', true);
+      const el = document.getElementById('pfPer100Preview');
+      if(entry.mode !== 'amount'){ el.textContent = ''; return; }
+      const per100 = resolvePer100FromEntry(entry);
+      el.textContent = `= per 100: ${fmtCalOrDash(per100.calories)} cal · P${fmtMacroOrDash(per100.protein)} F${fmtMacroOrDash(per100.fat)} C${fmtMacroOrDash(per100.carbs)}`;
+    }
+    wireMacroEntryMode('pf', {initialMode: p._macroMode, initialAmount: p._macroAmount, onChange: updatePfPreview});
+    ['pfCal','pfP','pfF','pfC'].forEach(fid=> document.getElementById(fid).addEventListener('input', updatePfPreview));
+    updatePfPreview();
     document.getElementById('pfBaseUnit').addEventListener('change', render2ServingsLabel);
     document.getElementById('addServingBtn').addEventListener('click', ()=>{
       syncMainFieldsFromDom();
@@ -1566,16 +2080,17 @@ function openProductForm(id){
     document.getElementById('productForm').addEventListener('submit', async (e)=>{
       e.preventDefault();
       syncServingsFromDom();
-      const blankToNull = id => { const v = document.getElementById(id).value; return v==='' ? null : Number(v); };
+      const per100 = resolvePer100FromEntry(readMacroEntryValues('pf', true));
       const data = {
         name: document.getElementById('pfName').value.trim(),
         baseUnit: document.getElementById('pfBaseUnit').value,
-        calories: blankToNull('pfCal'),
-        protein: blankToNull('pfP'),
-        fat: blankToNull('pfF'),
-        carbs: blankToNull('pfC'),
+        calories: per100.calories,
+        protein: per100.protein,
+        fat: per100.fat,
+        carbs: per100.carbs,
         customServings: servings.filter(s=>s.name.trim()).map(s=>({name:s.name.trim(), amount:Number(s.amount)||0})),
         category: document.getElementById('pfCategory').value || null,
+        familyId: document.getElementById('pfFamily').value || null,
         standardMeals: MEAL_TYPES.filter(m=> document.getElementById('pfMeal_'+m).checked),
       };
       if(id) await userCol('products').doc(id).update(data);
@@ -2009,6 +2524,48 @@ function renderSettingsUnits(){
 
 document.getElementById('addUnitBtn').addEventListener('click', async ()=>{
   await userCol('units').add({name:'new unit', ml:0});
+});
+
+function renderSettingsFamilies(){
+  document.getElementById('familiesTableBody').innerHTML = state.families.map(f=>{
+    // A family can't be reparented under itself or one of its own
+    // descendants — walk out from f collecting everyone under it.
+    const excluded = new Set([f.id]);
+    let changed = true;
+    while(changed){
+      changed = false;
+      state.families.forEach(other=>{
+        if(other.parentId && excluded.has(other.parentId) && !excluded.has(other.id)){ excluded.add(other.id); changed = true; }
+      });
+    }
+    const parentOptions = `<option value="" ${!f.parentId?'selected':''}>— top level —</option>` +
+      state.families.filter(o=>!excluded.has(o.id)).sort((a,b)=>familyPath(a.id).localeCompare(familyPath(b.id)))
+        .map(o=>`<option value="${o.id}" ${o.id===(f.parentId||'')?'selected':''}>${escapeHtml(familyPath(o.id))}</option>`).join('');
+    return `
+    <tr>
+      <td><input type="text" data-family-name="${f.id}" value="${escapeHtml(f.name)}" style="width:100%;"></td>
+      <td><select data-family-parent="${f.id}" style="width:100%;">${parentOptions}</select></td>
+      <td><button class="btn-icon" data-delete-family="${f.id}">&#128465;</button></td>
+    </tr>`;
+  }).join('');
+  document.querySelectorAll('[data-family-name]').forEach(el=> el.addEventListener('change', ()=>{
+    userCol('families').doc(el.dataset.familyName).update({name: el.value});
+  }));
+  document.querySelectorAll('[data-family-parent]').forEach(el=> el.addEventListener('change', ()=>{
+    userCol('families').doc(el.dataset.familyParent).update({parentId: el.value || null});
+  }));
+  document.querySelectorAll('[data-delete-family]').forEach(el=> el.addEventListener('click', async ()=>{
+    if(!confirm('Delete this family? Its sub-families become top-level, and products in it become uncategorized.')) return;
+    const id = el.dataset.deleteFamily;
+    const batch = db.batch();
+    batch.delete(userCol('families').doc(id));
+    state.families.filter(f=>f.parentId===id).forEach(f=> batch.update(userCol('families').doc(f.id), {parentId:null}));
+    state.products.filter(p=>p.familyId===id).forEach(p=> batch.update(userCol('products').doc(p.id), {familyId:null}));
+    await batch.commit();
+  }));
+}
+document.getElementById('addFamilyBtn').addEventListener('click', async ()=>{
+  await userCol('families').add({name:'new family', parentId:null});
 });
 
 function renderSettingsCategories(){
